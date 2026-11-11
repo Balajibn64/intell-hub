@@ -1,0 +1,23 @@
+spring:
+  application:
+    name: intellhub
+  config:
+    # Local convenience: read the repo-root .env (ignored by git) when running from backend/ or
+    # the repo root. Real environment variables take precedence over this file.
+    import: "optional:file:../.env[.properties],optional:file:./.env[.properties]"
+  datasource:
+    # Same variables as compose.yaml, so changing DB_PORT or DB_NAME there keeps the app in sync.
+    url: ${DB_URL:jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:intellhub}}
+    username: ${DB_USER:intellhub}
+    password: ${DB_PASSWORD}
+  jpa:
+    open-in-view: false
+    hibernate:
+      # Schema changes go through Flyway only. Hibernate just checks the mapping.
+      ddl-auto: validate
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health

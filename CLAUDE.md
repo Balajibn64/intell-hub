@@ -3,7 +3,7 @@
 A platform that ingests tech news, engineering content and industry signals, then summarizes, tags and ranks them per user. It is a real project and also a learning project for Claude Code. Explain the "why" briefly when introducing a new tool or pattern.
 
 ## Status
-Planning phase. Track decisions and learning in `PROGRESS.md`. Do not write application code until the PRD and architecture are agreed, unless asked.
+Planning documents are in `docs/` (drafts, in review) and the build follows `docs/ROADMAP.md`, one milestone at a time. M0 (backend skeleton) is built; do not build ahead of the current milestone unless asked. Track decisions and learning in `PROGRESS.md`.
 
 ## Stack (decided)
 - Backend: Java 21, Spring Boot 4.x, Spring Modulith (modular monolith), Maven
@@ -35,7 +35,13 @@ Planning phase. Track decisions and learning in `PROGRESS.md`. Do not write appl
 - Scrape sites that forbid it. Prefer official APIs and RSS.
 - Introduce microservices, message brokers or Kubernetes.
 
-## Commands (fill in as the project is created)
-- Backend: `mvn test`, `mvn spring-boot:run`
-- Frontend: `npm run dev`, `npm test`, `npm run lint`
-- Local stack: `docker compose up`
+## Git workflow
+- GitHub flow: `main` only changes through pull requests. Branches are `<type>/<short-kebab-description>` (`feat/`, `fix/`, `docs/`, `chore/`, `refactor/`, `test/`).
+- Commits follow Conventional Commits: `type(scope): imperative summary`, one logical change each. No `Co-Authored-By` or other attribution trailers.
+- Run the full backend tests before every push (no CI until the hardening milestone).
+
+## Commands
+- Local database: copy `.env.example` to `.env`, set `DB_PASSWORD`, then `docker compose up -d postgres`
+- Backend (from `backend/`; the app reads the repo-root `.env` itself): `./mvnw test`, `./mvnw spring-boot:run`
+- Frontend (not created yet): `npm run dev`, `npm test`, `npm run lint`
+- API prefix is `/api/v1`. Only `/actuator/health` is public until auth is built.

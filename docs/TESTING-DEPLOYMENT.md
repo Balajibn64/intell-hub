@@ -83,7 +83,7 @@ The app fails fast on startup if a required secret is missing. Secrets are never
 ## 8. Observability
 - Actuator health endpoint, structured logs with a request or run id.
 - Counters: LLM calls by provider, budget remaining, enrichment states, per-source failures and last success.
-- Admin status page (`/api/admin/status`) is the main view; no Prometheus or Grafana in the MVP.
+- Admin status page (`/api/v1/admin/status`) is the main view; no Prometheus or Grafana in the MVP.
 
 ## 9. Release and rollback
 - Tag releases; build images from the tag.
