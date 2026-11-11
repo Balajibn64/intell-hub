@@ -63,6 +63,12 @@ _Last updated: 2026-11-11_
 - [~] Learning roadmap: in `docs/LEARNING.md`, awaiting review
 - [~] Testing & deployment strategy: draft in `docs/TESTING-DEPLOYMENT.md`, awaiting review
 
+## Build progress (see docs/ROADMAP.md)
+- [x] M0 Backend skeleton (branch `feat/backend-skeleton`, PR pending): Boot 4.1.2 + Modulith 2.1.1, eight module packages, Compose Postgres 17, Flyway V1 baseline, health-only security, Modulith and Testcontainers tests green. API prefix is `/api/v1`.
+- [ ] M1 Auth
+
+Notes from M0: Initializr's Modulith option adds JPA event-registry and observability artifacts; trimmed them (the registry needs a table, which must come through Flyway, so add it deliberately when events need persistence). `UserDetailsServiceAutoConfiguration` still logs a generated password in M0; it disappears when real auth lands in M1.
+
 ## Skills and plugins decisions (2026-11-11)
 | Item | Decision | Why |
 |---|---|---|

@@ -35,7 +35,13 @@ Planning phase. Track decisions and learning in `PROGRESS.md`. Do not write appl
 - Scrape sites that forbid it. Prefer official APIs and RSS.
 - Introduce microservices, message brokers or Kubernetes.
 
-## Commands (fill in as the project is created)
-- Backend: `mvn test`, `mvn spring-boot:run`
-- Frontend: `npm run dev`, `npm test`, `npm run lint`
-- Local stack: `docker compose up`
+## Git workflow
+- GitHub flow: `main` only changes through pull requests. Branches are `<type>/<short-kebab-description>` (`feat/`, `fix/`, `docs/`, `chore/`, `refactor/`, `test/`).
+- Commits follow Conventional Commits: `type(scope): imperative summary`, one logical change each.
+- Run the full backend tests before every push (no CI until the hardening milestone).
+
+## Commands
+- Local database: copy `.env.example` to `.env`, set `DB_PASSWORD`, then `docker compose up -d postgres`
+- Backend (from `backend/`, with the `.env` values exported): `./mvnw test`, `./mvnw spring-boot:run`
+- Frontend (not created yet): `npm run dev`, `npm test`, `npm run lint`
+- API prefix is `/api/v1`. Only `/actuator/health` is public until auth is built.

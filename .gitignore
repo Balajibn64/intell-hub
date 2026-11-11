@@ -8,3 +8,7 @@
 .vscode/
 *.iml
 .DS_Store
+
+# Editor tooling output
+.metals/
+build/

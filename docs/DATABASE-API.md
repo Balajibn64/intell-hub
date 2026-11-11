@@ -73,41 +73,41 @@ First admin user comes from environment variables on first start, not from a mig
 Nightly: delete `article_events` and `articles` older than the retention window, excluding articles present in `saved_articles`. Delete in batches to keep transactions short. Expired and revoked refresh tokens are deleted in the same job.
 
 ## 7. REST API
-Base path `/api`. JSON. Auth via `Authorization: Bearer <access JWT>`, except where stated. Errors use one shape: `{ "code", "message", "details" }`. List endpoints are paginated with `page` and `size` (size capped).
+Base path `/api/v1`. JSON. Auth via `Authorization: Bearer <access JWT>`, except where stated. Errors use one shape: `{ "code", "message", "details" }`. List endpoints are paginated with `page` and `size` (size capped).
 
 ### Auth (public)
 | Method | Path | Notes |
 |---|---|---|
-| POST | /api/auth/login | Email and password. Returns access token; sets refresh cookie |
-| POST | /api/auth/refresh | Uses the refresh cookie; rotates it |
-| POST | /api/auth/logout | Revokes the refresh token |
+| POST | /api/v1/auth/login | Email and password. Returns access token; sets refresh cookie |
+| POST | /api/v1/auth/refresh | Uses the refresh cookie; rotates it |
+| POST | /api/v1/auth/logout | Revokes the refresh token |
 
 ### Current user
 | Method | Path | Notes |
 |---|---|---|
-| GET | /api/me | Profile and role |
-| PUT | /api/me/password | Change password |
-| GET | /api/me/interests | Interest tags with weights |
-| PUT | /api/me/interests | Replace the interest set |
+| GET | /api/v1/me | Profile and role |
+| PUT | /api/v1/me/password | Change password |
+| GET | /api/v1/me/interests | Interest tags with weights |
+| PUT | /api/v1/me/interests | Replace the interest set |
 
 ### Feed and articles (USER)
 | Method | Path | Notes |
 |---|---|---|
-| GET | /api/feed | Ranked. Filters: `category`, `tag`, `source`, `saved`, `q` (search) |
-| GET | /api/articles/{id} | Detail. Triggers lazy enrichment if not enriched, within the reserved budget |
-| POST | /api/articles/{id}/click | Records a click event |
-| PUT | /api/articles/{id}/save | Save |
-| DELETE | /api/articles/{id}/save | Unsave |
-| GET | /api/tags | Tag list for filters and interests |
+| GET | /api/v1/feed | Ranked. Filters: `category`, `tag`, `source`, `saved`, `q` (search) |
+| GET | /api/v1/articles/{id} | Detail. Triggers lazy enrichment if not enriched, within the reserved budget |
+| POST | /api/v1/articles/{id}/click | Records a click event |
+| PUT | /api/v1/articles/{id}/save | Save |
+| DELETE | /api/v1/articles/{id}/save | Unsave |
+| GET | /api/v1/tags | Tag list for filters and interests |
 
 ### Admin (ADMIN)
 | Method | Path | Notes |
 |---|---|---|
-| GET, POST | /api/admin/users | List, create |
-| PATCH | /api/admin/users/{id} | Change role or enabled |
-| GET, POST | /api/admin/sources | List, create |
-| PATCH, DELETE | /api/admin/sources/{id} | Edit, disable, remove |
-| GET | /api/admin/status | Source health, enrichment status counts, LLM budget used today |
+| GET, POST | /api/v1/admin/users | List, create |
+| PATCH | /api/v1/admin/users/{id} | Change role or enabled |
+| GET, POST | /api/v1/admin/sources | List, create |
+| PATCH, DELETE | /api/v1/admin/sources/{id} | Edit, disable, remove |
+| GET | /api/v1/admin/status | Source health, enrichment status counts, LLM budget used today |
 
 ### Internal
 | Method | Path | Notes |
@@ -124,5 +124,5 @@ Base path `/api`. JSON. Auth via `Authorization: Bearer <access JWT>`, except wh
 ## 9. Open items
 1. Exact ranking formula and weight increments (defined when implementing `feed` and `personalization`, with unit tests).
 2. Retention window length: 7 or 14 days (PRD says 1-2 weeks).
-3. Whether `/api/feed` uses offset or cursor pagination. Offset is simpler and fine at this scale; cursor avoids shifting results as new articles arrive.
+3. Whether `/api/v1/feed` uses offset or cursor pagination. Offset is simpler and fine at this scale; cursor avoids shifting results as new articles arrive.
 4. Search scope: title and summary only, or full content.

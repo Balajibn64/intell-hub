@@ -9,7 +9,7 @@ Stack: Java 21, Spring Boot 4.x, Spring Modulith, PostgreSQL, Flyway, Maven wrap
 Boot 4 and Modulith 2 are newer than most tutorials. **Check version-specific APIs against current docs (context7 MCP) before using them**, and don't trust Boot 3 examples blindly.
 
 ## Structure: package by module, not by layer
-- Top-level packages are modules: `com.intellhub.ingestion`, `content`, `personalization`, `users`.
+- Top-level packages are modules: `com.intellhub.identity`, `sources`, `ingestion`, `articles`, `enrichment`, `personalization`, `feed`, `retention` (see docs/ARCHITECTURE.md).
 - Inside a module, layering is optional and small. Do **not** create global `controller/`, `service/`, `repository/` packages.
 - Only the module's root package is its public API. Internals go in sub-packages (`internal`) and are never imported by other modules.
 - Cross-module calls use the other module's published API (a service interface or DTO) or application events. `ModularityTests` (`ApplicationModules.verify()`) must stay green.
