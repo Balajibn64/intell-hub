@@ -16,6 +16,18 @@ spring:
       # Schema changes go through Flyway only. Hibernate just checks the mapping.
       ddl-auto: validate
 
+intellhub:
+  identity:
+    jwt:
+      # Required, at least 32 characters. Startup fails if it is missing or too short.
+      secret: ${JWT_SECRET}
+    refresh:
+      cookie-secure: ${COOKIE_SECURE:false}
+    admin:
+      email: ${ADMIN_EMAIL:}
+      password: ${ADMIN_PASSWORD:}
+    allowed-origins: ${ALLOWED_ORIGINS:http://localhost:5173}
+
 management:
   endpoints:
     web:
