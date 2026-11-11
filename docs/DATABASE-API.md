@@ -60,14 +60,15 @@ erDiagram
 ## 5. Flyway migration plan
 | Version | Content |
 |---|---|
-| V1__identity.sql | users, refresh_tokens |
-| V2__sources.sql | sources |
-| V3__articles_tags.sql | articles, tags, article_tags, indexes, search vector |
-| V4__personalization.sql | user_tag_weights, article_events, saved_articles |
-| V5__enrichment_usage.sql | llm_usage |
-| V6__seed_taxonomy.sql | Initial taxonomy tags (idempotent inserts) |
+| V1__baseline.sql | Baseline (M0): proves Flyway runs |
+| V2__identity.sql | users, refresh_tokens (M1, done) |
+| V3__sources.sql | sources |
+| V4__articles_tags.sql | articles, tags, article_tags, indexes, search vector |
+| V5__personalization.sql | user_tag_weights, article_events, saved_articles |
+| V6__enrichment_usage.sql | llm_usage |
+| V7__seed_taxonomy.sql | Initial taxonomy tags (idempotent inserts) |
 
-First admin user comes from environment variables on first start, not from a migration, so no credentials live in the repo.
+First admin user comes from `ADMIN_EMAIL` and `ADMIN_PASSWORD` on first start, only while no users exist, not from a migration, so no credentials live in the repo.
 
 ## 6. Retention purge
 Nightly: delete `article_events` and `articles` older than the retention window, excluding articles present in `saved_articles`. Delete in batches to keep transactions short. Expired and revoked refresh tokens are deleted in the same job.

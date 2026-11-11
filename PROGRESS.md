@@ -65,7 +65,10 @@ _Last updated: 2026-11-11_
 
 ## Build progress (see docs/ROADMAP.md)
 - [x] M0 Backend skeleton (branch `feat/backend-skeleton`, PR pending): Boot 4.1.2 + Modulith 2.1.1, eight module packages, Compose Postgres 17, Flyway V1 baseline, health-only security, Modulith and Testcontainers tests green. API prefix is `/api/v1`.
-- [ ] M1 Auth. From the M0 code review: replace `TemporarySecurityConfig` rather than extending it; CSRF is disabled there globally, but the refresh-token cookie flow (`/auth/refresh`, `/auth/logout`) is CSRF-sensitive, so scope any exemption to the endpoints that need it and test it. Also remove the generated-password user.
+- [x] M1 Auth (branch `feat/auth`, PR pending): V2 identity schema, BCrypt, HS256 access JWT via Spring's OAuth2 resource server starter (the one new dependency), rotating refresh tokens (hashed, family revocation on replay, row lock for concurrent use), login throttling, `/me`, admin user endpoints, first-admin bootstrap, shared error model. 73 tests. Checked end to end with curl against Compose Postgres.
+  - CSRF: framework stays off (stateless bearer API); the two cookie endpoints require `X-Requested-By: intellhub` and an allowed `Origin`, on top of `SameSite=Strict`. Generated-password user is gone.
+  - Known limits: two tabs refreshing with one cookie at the same moment will log the user out (SPA must serialize refresh); the login limiter is in memory (resets on restart, single instance); an access token stays valid up to 15 min after an account is disabled, though `/me` re-checks the account. Deferred: `PATCH /admin/users/{id}`, `PUT /me/password`.
+  - Lesson: after deleting a class, `./mvnw clean verify`; a stale `.class` caused a confusing duplicate-bean failure.
 
 Notes from M0: Initializr's Modulith option adds JPA event-registry and observability artifacts; trimmed them (the registry needs a table, which must come through Flyway, so add it deliberately when events need persistence). `UserDetailsServiceAutoConfiguration` still logs a generated password in M0; it disappears when real auth lands in M1.
 
