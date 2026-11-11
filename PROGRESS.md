@@ -65,7 +65,7 @@ _Last updated: 2026-11-11_
 
 ## Build progress (see docs/ROADMAP.md)
 - [x] M0 Backend skeleton (branch `feat/backend-skeleton`, PR pending): Boot 4.1.2 + Modulith 2.1.1, eight module packages, Compose Postgres 17, Flyway V1 baseline, health-only security, Modulith and Testcontainers tests green. API prefix is `/api/v1`.
-- [ ] M1 Auth
+- [ ] M1 Auth. From the M0 code review: replace `TemporarySecurityConfig` rather than extending it; CSRF is disabled there globally, but the refresh-token cookie flow (`/auth/refresh`, `/auth/logout`) is CSRF-sensitive, so scope any exemption to the endpoints that need it and test it. Also remove the generated-password user.
 
 Notes from M0: Initializr's Modulith option adds JPA event-registry and observability artifacts; trimmed them (the registry needs a table, which must come through Flyway, so add it deliberately when events need persistence). `UserDetailsServiceAutoConfiguration` still logs a generated password in M0; it disappears when real auth lands in M1.
 
