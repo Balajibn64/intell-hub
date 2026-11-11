@@ -37,7 +37,7 @@ Planning phase. Track decisions and learning in `PROGRESS.md`. Do not write appl
 
 ## Git workflow
 - GitHub flow: `main` only changes through pull requests. Branches are `<type>/<short-kebab-description>` (`feat/`, `fix/`, `docs/`, `chore/`, `refactor/`, `test/`).
-- Commits follow Conventional Commits: `type(scope): imperative summary`, one logical change each.
+- Commits follow Conventional Commits: `type(scope): imperative summary`, one logical change each. No `Co-Authored-By` or other attribution trailers.
 - Run the full backend tests before every push (no CI until the hardening milestone).
 
 ## Commands
