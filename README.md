@@ -9,11 +9,13 @@ Requirements: Java 21, Docker.
 ```bash
 cp .env.example .env          # then set DB_PASSWORD
 docker compose up -d postgres
-set -a && . ./.env && set +a
 cd backend
-./mvnw spring-boot:run
+./mvnw spring-boot:run               # reads ../.env; real environment variables win
 curl localhost:8080/actuator/health   # {"status":"UP", ...}
 ```
+
+`DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER` and `DB_PASSWORD` configure the connection (the same
+names Compose uses). Set `DB_URL` to override the whole JDBC URL.
 
 ## Test
 ```bash

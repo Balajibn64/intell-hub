@@ -3,7 +3,7 @@
 A platform that ingests tech news, engineering content and industry signals, then summarizes, tags and ranks them per user. It is a real project and also a learning project for Claude Code. Explain the "why" briefly when introducing a new tool or pattern.
 
 ## Status
-Planning phase. Track decisions and learning in `PROGRESS.md`. Do not write application code until the PRD and architecture are agreed, unless asked.
+Planning documents are in `docs/` (drafts, in review) and the build follows `docs/ROADMAP.md`, one milestone at a time. M0 (backend skeleton) is built; do not build ahead of the current milestone unless asked. Track decisions and learning in `PROGRESS.md`.
 
 ## Stack (decided)
 - Backend: Java 21, Spring Boot 4.x, Spring Modulith (modular monolith), Maven
@@ -42,6 +42,6 @@ Planning phase. Track decisions and learning in `PROGRESS.md`. Do not write appl
 
 ## Commands
 - Local database: copy `.env.example` to `.env`, set `DB_PASSWORD`, then `docker compose up -d postgres`
-- Backend (from `backend/`, with the `.env` values exported): `./mvnw test`, `./mvnw spring-boot:run`
+- Backend (from `backend/`; the app reads the repo-root `.env` itself): `./mvnw test`, `./mvnw spring-boot:run`
 - Frontend (not created yet): `npm run dev`, `npm test`, `npm run lint`
 - API prefix is `/api/v1`. Only `/actuator/health` is public until auth is built.
