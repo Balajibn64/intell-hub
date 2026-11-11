@@ -44,7 +44,7 @@ class ApplicationStartsTests {
 
 	@Test
 	void everythingElseIsDenied() throws Exception {
-		mockMvc.perform(get("/api/v1/anything")).andExpect(status().isForbidden());
+		mockMvc.perform(get("/api/v1/anything")).andExpect(status().isUnauthorized());
 	}
 
 }
