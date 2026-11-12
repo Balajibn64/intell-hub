@@ -322,4 +322,52 @@ class ReadingStateServiceTests {
 				UUID.randomUUID(), alice, article)).isInstanceOf(DataIntegrityViolationException.class);
 	}
 
+	// ---- saved by anyone (the retention purge keeps these) ----
+
+	@Test
+	void savedByAnyoneReportsArticlesSavedByAnyUserAndOnlyThose() {
+		UUID savedByAlice = article();
+		UUID savedByBob = article();
+		UUID savedByBoth = article();
+		UUID neverSaved = article();
+		state.save(alice, savedByAlice);
+		state.save(bob, savedByBob);
+		state.save(alice, savedByBoth);
+		state.save(bob, savedByBoth);
+
+		assertThat(state.savedByAnyone(List.of(savedByAlice, savedByBob, savedByBoth, neverSaved)))
+				.containsExactlyInAnyOrder(savedByAlice, savedByBob, savedByBoth);
+		assertThat(state.savedByAnyone(List.of(neverSaved))).isEmpty();
+	}
+
+	@Test
+	void anArticleStopsCountingOnceEveryoneHasUnsavedIt() {
+		UUID article = article();
+		state.save(alice, article);
+		state.save(bob, article);
+
+		state.unsave(alice, article);
+		assertThat(state.savedByAnyone(List.of(article))).containsExactly(article);
+
+		state.unsave(bob, article);
+		assertThat(state.savedByAnyone(List.of(article))).isEmpty();
+	}
+
+	@Test
+	void savedByAnyoneHandlesEmptyNullDuplicateUnknownAndVeryLargeInput() {
+		UUID saved = article();
+		state.save(alice, saved);
+		List<UUID> many = new ArrayList<>();
+		for (int i = 0; i < 2500; i++) {
+			many.add(UUID.randomUUID());
+		}
+		many.add(saved);
+		many.add(saved);
+
+		assertThat(state.savedByAnyone(List.of())).isEmpty();
+		assertThat(state.savedByAnyone(null)).isEmpty();
+		assertThat(state.savedByAnyone(List.of(UUID.randomUUID()))).isEmpty();
+		assertThat(state.savedByAnyone(many)).containsExactly(saved);
+	}
+
 }

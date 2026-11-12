@@ -101,6 +101,22 @@ class ReadingStateService implements ReadingState {
 				.param("user", userId).param("ids", articleIds).query(UUID.class).list());
 	}
 
+	@Override
+	@Transactional(readOnly = true)
+	public Set<UUID> savedByAnyone(Collection<UUID> articleIds) {
+		if (articleIds == null || articleIds.isEmpty()) {
+			return Set.of();
+		}
+		Set<UUID> saved = new HashSet<>();
+		List<UUID> all = List.copyOf(new HashSet<>(articleIds));
+		for (int from = 0; from < all.size(); from += 1000) {
+			List<UUID> chunk = all.subList(from, Math.min(from + 1000, all.size()));
+			saved.addAll(jdbc.sql("select distinct article_id from saved_articles where article_id in (:ids)").param("ids", chunk)
+					.query(UUID.class).list());
+		}
+		return saved;
+	}
+
 	private void recordEvent(UUID userId, UUID articleId, String type) {
 		jdbc.sql("""
 				insert into article_events (id, user_id, article_id, type, created_at)
