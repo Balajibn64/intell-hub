@@ -175,7 +175,8 @@ class FeedApiTests {
 	void unknownAndMalformedIdsAreRejectedCleanly() throws Exception {
 		mvc.perform(get("/api/v1/articles/" + UUID.randomUUID()).with(as(alice)))
 				.andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("ARTICLE_NOT_FOUND"));
-		mvc.perform(get("/api/v1/articles/not-a-uuid").with(as(alice))).andExpect(status().isBadRequest());
+		mvc.perform(get("/api/v1/articles/not-a-uuid").with(as(alice))).andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
 	}
 
 	// ---- paging, filters, search ----
@@ -195,8 +196,10 @@ class FeedApiTests {
 				.andExpect(jsonPath("$.items.length()").value(0)).andExpect(jsonPath("$.totalElements").value(25));
 		mvc.perform(get("/api/v1/feed").with(as(alice))).andExpect(jsonPath("$.items.length()").value(20));
 		for (String[] bad : new String[][] { { "size", "51" }, { "size", "0" }, { "size", "-1" }, { "size", "abc" },
-				{ "page", "-1" }, { "page", "100001" }, { "page", "x" }, { "saved", "maybe" } }) {
-			mvc.perform(get("/api/v1/feed").param(bad[0], bad[1]).with(as(alice))).andExpect(status().isBadRequest());
+				{ "page", "-1" }, { "page", "100001" }, { "page", "x" }, { "saved", "maybe" }, { "source", "not-a-uuid" } }) {
+			// Every kind of bad parameter, including a wrong type, answers with the same error code.
+			mvc.perform(get("/api/v1/feed").param(bad[0], bad[1]).with(as(alice))).andExpect(status().isBadRequest())
+					.andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
 		}
 	}
 

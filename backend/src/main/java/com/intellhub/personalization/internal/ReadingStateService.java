@@ -64,6 +64,10 @@ class ReadingStateService implements ReadingState {
 	@Override
 	@Transactional
 	public void recordClick(UUID userId, UUID articleId) {
+		// Two clicks arriving together would both see "no recent click" under READ COMMITTED. A transaction-level
+		// advisory lock on this user and article makes the second wait, and then see the first click.
+		jdbc.sql("select pg_advisory_xact_lock(hashtextextended(:key, 0))").param("key", userId + ":" + articleId)
+				.query().singleRow();
 		boolean recentClick = jdbc.sql("""
 				select exists (select 1 from article_events where user_id = :user and article_id = :article
 				and type = 'CLICK' and created_at > :since)""")

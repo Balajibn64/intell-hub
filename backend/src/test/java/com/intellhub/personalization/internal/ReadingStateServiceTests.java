@@ -167,6 +167,36 @@ class ReadingStateServiceTests {
 	}
 
 	@Test
+	void simultaneousClicksOnOneArticleAreRecordedOnceNotOncePerRequest() throws Exception {
+		UUID article = article();
+		int threads = 8;
+		CountDownLatch ready = new CountDownLatch(threads);
+		CountDownLatch go = new CountDownLatch(1);
+		ExecutorService pool = Executors.newFixedThreadPool(threads);
+		try {
+			List<Future<?>> futures = new ArrayList<>();
+			for (int i = 0; i < threads; i++) {
+				futures.add(pool.submit(() -> {
+					ready.countDown();
+					go.await();
+					state.recordClick(alice, article);
+					return null;
+				}));
+			}
+			ready.await();
+			go.countDown();
+			for (Future<?> future : futures) {
+				future.get();
+			}
+		}
+		finally {
+			pool.shutdownNow();
+		}
+
+		assertThat(events(alice, article, "CLICK")).isEqualTo(1);
+	}
+
+	@Test
 	void aClickAfterTheDedupeWindowIsRecordedAgain() {
 		UUID article = article();
 		state.recordClick(alice, article);

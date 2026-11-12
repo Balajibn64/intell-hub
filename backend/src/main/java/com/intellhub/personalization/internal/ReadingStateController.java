@@ -5,7 +5,6 @@ import com.intellhub.identity.CurrentUser;
 import com.intellhub.personalization.ReadingState;
 import com.intellhub.shared.ApiException;
 import java.util.UUID;
-import java.util.function.Supplier;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -48,27 +47,31 @@ class ReadingStateController {
 	@PostMapping("/click")
 	@ResponseStatus(HttpStatus.NO_CONTENT)
 	void click(CurrentUser user, @PathVariable UUID id) {
-		write(id, () -> {
-			state.recordClick(user.id(), id);
-			return true;
-		});
+		write(id, () -> state.recordClick(user.id(), id));
 	}
 
-	/** Checks the article exists, then writes. A row that vanishes in between is reported the same way. */
-	private void write(UUID articleId, Supplier<Boolean> action) {
+	/**
+	 * Checks the article exists, then writes. A row that vanishes in between is reported the same way. Only
+	 * the two foreign keys we expect are translated, by constraint name (PostgreSQL's default
+	 * {@code <table>_<column>_fkey}); any other integrity problem is a real fault and is rethrown.
+	 */
+	private void write(UUID articleId, Runnable action) {
 		if (!articles.existsById(articleId)) {
 			throw notFound();
 		}
 		try {
-			action.get();
+			action.run();
 		}
 		catch (DataIntegrityViolationException e) {
-			String message = e.getMostSpecificCause().getMessage();
-			if (message != null && message.contains("user_id")) {
+			String message = String.valueOf(e.getMostSpecificCause().getMessage());
+			if (message.contains("saved_articles_user_id_fkey") || message.contains("article_events_user_id_fkey")) {
 				// The account was deleted while its token was still valid.
 				throw new ApiException(HttpStatus.UNAUTHORIZED, "UNAUTHENTICATED", "Authentication required");
 			}
-			throw notFound();
+			if (message.contains("saved_articles_article_id_fkey") || message.contains("article_events_article_id_fkey")) {
+				throw notFound();
+			}
+			throw e;
 		}
 	}
 

@@ -54,7 +54,14 @@ class FeedController {
 		validate(page, size, q, category);
 
 		Set<UUID> onlyIds = saved ? new HashSet<>(readingState.savedArticleIds(user.id())) : null;
-		ArticlePage result = articles.search(new ArticleFilter(q, source, category, onlyIds), page, size);
+		ArticlePage result;
+		try {
+			result = articles.search(new ArticleFilter(q, source, category, onlyIds), page, size);
+		}
+		catch (IllegalArgumentException e) {
+			// The catalog is the authority on limits; if it is stricter than the checks above, still answer 400.
+			throw invalid("Invalid search parameters");
+		}
 
 		List<UUID> ids = result.items().stream().map(ArticleView::id).toList();
 		Set<UUID> savedAmongPage = readingState.savedAmong(user.id(), ids);
