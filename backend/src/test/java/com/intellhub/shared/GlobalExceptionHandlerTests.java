@@ -50,6 +50,18 @@ class GlobalExceptionHandlerTests {
 	}
 
 	@Test
+	void aParameterOfTheWrongTypeIsAValidationErrorNamingTheParameter() throws Exception {
+		mvc.perform(get("/typed").param("count", "abc"))
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
+				.andExpect(jsonPath("$.details.count").value("Invalid value"));
+		mvc.perform(get("/typed/not-a-uuid"))
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
+				.andExpect(jsonPath("$.details.id").exists());
+	}
+
+	@Test
 	void accessDeniedIsForbidden() throws Exception {
 		mvc.perform(get("/denied"))
 				.andExpect(status().isForbidden())
@@ -75,6 +87,16 @@ class GlobalExceptionHandlerTests {
 		@GetMapping("/denied")
 		String denied() {
 			throw new AccessDeniedException("nope");
+		}
+
+		@GetMapping("/typed")
+		String typed(@org.springframework.web.bind.annotation.RequestParam int count) {
+			return String.valueOf(count);
+		}
+
+		@GetMapping("/typed/{id}")
+		String typedPath(@org.springframework.web.bind.annotation.PathVariable java.util.UUID id) {
+			return id.toString();
 		}
 
 		@GetMapping("/boom")

@@ -50,6 +50,17 @@ and link-local addresses and numeric IP tricks are rejected.
 curl localhost:8080/api/v1/admin/sources -H "Authorization: Bearer <admin accessToken>"
 ```
 
+## Reading the feed
+All of these need a bearer token (any role). `GET /api/v1/feed` lists articles newest first
+(`page`, `size` up to 50, `q` for full-text search, `source`, `category`, `saved=true`), and
+`GET /api/v1/articles/{id}` returns one article with its sanitized content. `PUT` and `DELETE`
+`/api/v1/articles/{id}/save` and `POST /api/v1/articles/{id}/click` change only the caller's own state.
+Show `contentSanitized` as HTML and everything else as text.
+
+```bash
+curl "localhost:8080/api/v1/feed?q=kubernetes&size=10" -H "Authorization: Bearer <accessToken>"
+```
+
 ## Ingestion
 Ingestion fetches every enabled RSS source, cleans the entries and stores the new ones. It is started
 with a shared secret (set `INGEST_SECRET`, 32+ characters; without it the endpoint refuses every call):

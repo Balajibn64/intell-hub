@@ -8,6 +8,7 @@ import com.intellhub.sources.SourceCatalog;
 import com.intellhub.sources.SourceInfo;
 import com.intellhub.sources.SourceType;
 import java.time.Clock;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -51,6 +52,17 @@ class SourceService implements SourceCatalog {
 		return sources.findByEnabledTrueOrderByCreatedAtAsc().stream()
 				.map(s -> new SourceInfo(s.getId(), s.getType(), s.getName(), s.getUrl(), readOnlyCopy(s.getConfig())))
 				.toList();
+	}
+
+	@Override
+	@Transactional(readOnly = true)
+	public Map<UUID, String> names(Collection<UUID> sourceIds) {
+		if (sourceIds == null || sourceIds.isEmpty()) {
+			return Map.of();
+		}
+		Map<UUID, String> names = new LinkedHashMap<>();
+		sources.findAllById(sourceIds).forEach(source -> names.put(source.getId(), source.getName()));
+		return names;
 	}
 
 	@Override

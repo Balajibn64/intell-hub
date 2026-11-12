@@ -64,10 +64,11 @@ erDiagram
 | V2__identity.sql | users, refresh_tokens (M1, done) |
 | V3__sources.sql | sources (M2, done) |
 | V4__articles.sql | articles with unique canonical URL and content hash, indexes, search vector (M3, done) |
-| V5__tags.sql | tags, article_tags |
-| V6__personalization.sql | user_tag_weights, article_events, saved_articles |
-| V7__enrichment_usage.sql | llm_usage |
-| V8__seed_taxonomy.sql | Initial taxonomy tags (idempotent inserts) |
+| V5__reading_state.sql | saved_articles, article_events, and the search index over title, excerpt and summary (M4, done) |
+| V6__tags.sql | tags, article_tags |
+| V7__personalization.sql | user_tag_weights |
+| V8__enrichment_usage.sql | llm_usage |
+| V9__seed_taxonomy.sql | Initial taxonomy tags (idempotent inserts) |
 
 First admin user comes from `ADMIN_EMAIL` and `ADMIN_PASSWORD` on first start, only while no users exist, not from a migration, so no credentials live in the repo.
 
@@ -95,12 +96,12 @@ Base path `/api/v1`. JSON. Auth via `Authorization: Bearer <access JWT>`, except
 ### Feed and articles (USER)
 | Method | Path | Notes |
 |---|---|---|
-| GET | /api/v1/feed | Ranked. Filters: `category`, `tag`, `source`, `saved`, `q` (search) |
-| GET | /api/v1/articles/{id} | Detail. Triggers lazy enrichment if not enriched, within the reserved budget |
-| POST | /api/v1/articles/{id}/click | Records a click event |
-| PUT | /api/v1/articles/{id}/save | Save |
-| DELETE | /api/v1/articles/{id}/save | Unsave |
-| GET | /api/v1/tags | Tag list for filters and interests |
+| GET | /api/v1/feed | Newest first until ranking arrives in M7. Query: `page` (from 0), `size` (1-50, default 20), `q` (web-style full text over title, excerpt and summary, at most 200 characters), `source` (uuid), `category` (AI_ML, SOFTWARE_ENGINEERING, INDUSTRY_STARTUPS), `saved` (true shows only the caller's saved articles). The `tag` filter arrives with tags in M5. Returns `{items, page, size, totalElements, totalPages}`; each item has id, sourceId, sourceName, url, title, author, publishedAt, excerpt, summary, category, status and `saved` (the caller's own). Bad parameters are 400 `VALIDATION_FAILED` |
+| GET | /api/v1/articles/{id} | The item fields plus `contentSanitized`, the only field that may be rendered as HTML (everything else is text). 404 `ARTICLE_NOT_FOUND`. Lazy enrichment on open arrives in M5 |
+| POST | /api/v1/articles/{id}/click | Records a click event, 204. A repeat click on the same article within 10 seconds counts once |
+| PUT | /api/v1/articles/{id}/save | Save, idempotent, 204. Only ever changes the caller's own state |
+| DELETE | /api/v1/articles/{id}/save | Unsave, idempotent, 204 |
+| GET | /api/v1/tags | Tag list for filters and interests (arrives with tags in M5) |
 
 ### Admin (ADMIN)
 | Method | Path | Notes |
@@ -126,5 +127,5 @@ Base path `/api/v1`. JSON. Auth via `Authorization: Bearer <access JWT>`, except
 ## 9. Open items
 1. Exact ranking formula and weight increments (defined when implementing `feed` and `personalization`, with unit tests).
 2. Retention window length: 7 or 14 days (PRD says 1-2 weeks).
-3. Whether `/api/v1/feed` uses offset or cursor pagination. Offset is simpler and fine at this scale; cursor avoids shifting results as new articles arrive.
-4. Search scope: title and summary only, or full content.
+3. ~~Offset or cursor pagination~~ Decided (M4): offset pages. New articles arriving mid-scroll can shift items by one; accepted at this scale.
+4. ~~Search scope~~ Decided (M4): title, excerpt and summary, not full content.
