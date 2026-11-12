@@ -2,6 +2,7 @@ package com.intellhub.sources.internal;
 
 import com.intellhub.shared.ApiException;
 import com.intellhub.shared.PublicUrlPolicy;
+import com.intellhub.shared.Text;
 import com.intellhub.sources.FetchResult;
 import com.intellhub.sources.SourceCatalog;
 import com.intellhub.sources.SourceInfo;
@@ -174,11 +175,7 @@ class SourceService implements SourceCatalog {
 		if (flat.length() <= MAX_ERROR_LENGTH) {
 			return flat;
 		}
-		int end = MAX_ERROR_LENGTH;
-		if (Character.isHighSurrogate(flat.charAt(end - 1))) {
-			end--;
-		}
-		return flat.substring(0, end);
+		return Text.cut(flat, MAX_ERROR_LENGTH);
 	}
 
 	private static ApiException exists() {

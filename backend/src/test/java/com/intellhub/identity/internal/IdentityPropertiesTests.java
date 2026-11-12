@@ -26,6 +26,17 @@ class IdentityPropertiesTests {
 	}
 
 	@Test
+	void theExamplePlaceholderSecretIsRejectedEvenThoughItIsLongEnough() {
+		String placeholder = "change-me-to-a-long-random-value-of-32-chars-or-more";
+
+		assertThat(placeholder.length()).isGreaterThan(32);
+		assertThat(validator.validate(TestProperties.with(placeholder, "intellhub"))).isNotEmpty();
+		assertThat(validator.validate(TestProperties.with("CHANGE-ME-" + "x".repeat(40), "intellhub"))).isNotEmpty();
+		assertThat(validator.validate(TestProperties.with("a-real-random-secret-0123456789abcdef-xyz", "intellhub")))
+				.isEmpty();
+	}
+
+	@Test
 	void adminIsOnlyConfiguredWhenBothValuesArePresent() {
 		assertThat(new IdentityProperties.Admin(null, null).configured()).isFalse();
 		assertThat(new IdentityProperties.Admin("a@b.c", "").configured()).isFalse();

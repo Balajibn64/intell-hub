@@ -1,13 +1,12 @@
 package com.intellhub.ingestion.internal;
 
+import com.intellhub.shared.Hashes;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.List;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
@@ -30,7 +29,7 @@ final class IngestTokenFilter extends OncePerRequestFilter {
 	private final byte[] secretDigest;
 
 	IngestTokenFilter(String secret) {
-		this.secretDigest = secret == null || secret.isBlank() ? null : sha256(secret);
+		this.secretDigest = secret == null || secret.isBlank() ? null : Hashes.sha256(secret);
 	}
 
 	@Override
@@ -38,21 +37,12 @@ final class IngestTokenFilter extends OncePerRequestFilter {
 			throws ServletException, IOException {
 		if (secretDigest != null) {
 			String token = request.getHeader(HEADER);
-			if (token != null && token.length() <= MAX_TOKEN_LENGTH && MessageDigest.isEqual(sha256(token), secretDigest)) {
+			if (token != null && token.length() <= MAX_TOKEN_LENGTH && MessageDigest.isEqual(Hashes.sha256(token), secretDigest)) {
 				SecurityContextHolder.getContext().setAuthentication(UsernamePasswordAuthenticationToken
 						.authenticated("ingest", null, List.of(new SimpleGrantedAuthority("ROLE_INGEST"))));
 			}
 		}
 		chain.doFilter(request, response);
-	}
-
-	private static byte[] sha256(String value) {
-		try {
-			return MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8));
-		}
-		catch (NoSuchAlgorithmException e) {
-			throw new IllegalStateException("SHA-256 is always available", e);
-		}
 	}
 
 }

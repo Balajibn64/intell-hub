@@ -1,9 +1,6 @@
 package com.intellhub.ingestion.internal;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
-import java.util.HexFormat;
+import com.intellhub.shared.Hashes;
 import java.util.Locale;
 
 /**
@@ -32,13 +29,7 @@ final class ContentHasher {
 		else {
 			input = canonicalUrl + "\n" + title + "\n" + text;
 		}
-		try {
-			byte[] digest = MessageDigest.getInstance("SHA-256").digest(input.getBytes(StandardCharsets.UTF_8));
-			return HexFormat.of().formatHex(digest);
-		}
-		catch (NoSuchAlgorithmException e) {
-			throw new IllegalStateException("SHA-256 is always available", e);
-		}
+		return Hashes.sha256Hex(input);
 	}
 
 	private static String normalize(String value) {

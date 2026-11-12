@@ -159,10 +159,34 @@ class ContentSanitizerTests {
 	}
 
 	@Test
-	void titlesAndAuthorsAreTextOnlyAndBounded() {
-		assertThat(sanitizer.title("<b>Bold</b> <script>x</script>title &amp; more")).isEqualTo("Bold title & more");
+	void titlesAreTextNotHtmlSoDeveloperTitlesKeepTheirWords() {
+		assertThat(sanitizer.title("Using <form> validation in React")).isEqualTo("Using <form> validation in React");
+		assertThat(sanitizer.title("Why <script> tags block rendering")).isEqualTo("Why <script> tags block rendering");
+		assertThat(sanitizer.title("List<String> in Java 21")).isEqualTo("List<String> in Java 21");
+		assertThat(sanitizer.title("<b>Bold</b> stays as written")).isEqualTo("<b>Bold</b> stays as written");
+	}
+
+	@Test
+	void titleEntitiesAreDecodedAndWhitespaceTidied() {
+		assertThat(sanitizer.title("Tom &amp; Jerry&#8217;s  \n\t new   show")).isEqualTo("Tom & Jerry\u2019s new show");
+		assertThat(sanitizer.title("   padded   ")).isEqualTo("padded");
+		assertThat(sanitizer.title(null)).isEmpty();
+		assertThat(sanitizer.title("\u0000\u0007\u001b[31mcontrol\u007f")).isEqualTo("[31mcontrol");
+	}
+
+	@Test
+	void invisibleAndDirectionOverrideCharactersAreRemovedFromTitles() {
+		// A right-to-left override can make "txt.exe" display as "exe.txt"; zero-width characters hide text.
+		assertThat(sanitizer.title("invoice\u202Etxt.exe")).isEqualTo("invoicetxt.exe");
+		assertThat(sanitizer.title("pa\u200Bss\u200Cword\u2060\uFEFF")).isEqualTo("password");
+		assertThat(sanitizer.title("a\u2066b\u2069c")).isEqualTo("abc");
+	}
+
+	@Test
+	void titlesAndAuthorsAreBoundedAndAuthorsMayBeNull() {
 		assertThat(sanitizer.title("t".repeat(500))).hasSize(NewArticle.MAX_TITLE);
-		assertThat(sanitizer.author("<i>Ada</i> <img src=x>")).isEqualTo("Ada");
+		assertThat(sanitizer.author("  Ada Lovelace ")).isEqualTo("Ada Lovelace");
+		assertThat(sanitizer.author("a".repeat(500))).hasSize(NewArticle.MAX_AUTHOR);
 		assertThat(sanitizer.author("   ")).isNull();
 		assertThat(sanitizer.author(null)).isNull();
 	}

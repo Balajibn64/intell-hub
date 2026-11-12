@@ -289,6 +289,37 @@ class SafeHttpFetcherTests {
 	}
 
 	@Test
+	void aStalledDnsLookupIsStoppedByTheDeadlineInsteadOfHangingTheFetch() {
+		DnsResolver stalled = new DnsResolver() {
+			@Override
+			public InetAddress[] resolve(String host) throws UnknownHostException {
+				try {
+					Thread.sleep(5000);
+				}
+				catch (InterruptedException e) {
+					Thread.currentThread().interrupt();
+				}
+				throw new UnknownHostException("stalled");
+			}
+
+			@Override
+			public String resolveCanonicalHostname(String host) {
+				return host;
+			}
+		};
+		FetchSettings quick = new FetchSettings(Duration.ofMillis(300), Duration.ofSeconds(1), Duration.ofSeconds(3), 1_000_000,
+				3, "IntellHub/test");
+		try (SafeHttpFetcher f = new SafeHttpFetcher(quick, PublicUrlPolicy::problem, LOOPBACK_OR_PUBLIC, stalled)) {
+			long start = System.nanoTime();
+
+			FetchOutcome outcome = f.fetch(url("slowdns.example", "/feed"));
+
+			assertThat(reason(outcome)).isEqualTo(Reason.TIMEOUT);
+			assertThat(Duration.ofNanos(System.nanoTime() - start)).isLessThan(Duration.ofSeconds(2));
+		}
+	}
+
+	@Test
 	void anUnknownNameIsAnOrdinaryNetworkError() {
 		assertThat(reason(fetcher.fetch(url("nowhere.example", "/feed")))).isEqualTo(Reason.NETWORK_ERROR);
 	}

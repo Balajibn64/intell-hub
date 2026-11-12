@@ -1,5 +1,6 @@
 package com.intellhub.ingestion.internal;
 
+import com.intellhub.shared.Text;
 import com.rometools.rome.feed.synd.SyndContent;
 import com.rometools.rome.feed.synd.SyndEntry;
 import com.rometools.rome.feed.synd.SyndFeed;
@@ -69,7 +70,7 @@ class RomeFeedParser implements FeedParser {
 
 	private static ParsedEntry toEntry(SyndEntry entry) {
 		String link = firstUsableLink(entry);
-		String title = bounded(entry.getTitle(), MAX_TITLE_CHARS);
+		String title = Text.cut(entry.getTitle(), MAX_TITLE_CHARS);
 		if (link == null || title == null || title.isBlank()) {
 			return null;
 		}
@@ -99,7 +100,7 @@ class RomeFeedParser implements FeedParser {
 				}
 			}
 		}
-		return author == null || author.isBlank() ? null : bounded(author, MAX_AUTHOR_CHARS);
+		return author == null || author.isBlank() ? null : Text.cut(author, MAX_AUTHOR_CHARS);
 	}
 
 	private static Instant instant(SyndEntry entry) {
@@ -120,23 +121,8 @@ class RomeFeedParser implements FeedParser {
 		if (value == null && entry.getDescription() != null) {
 			value = entry.getDescription().getValue();
 		}
-		String bounded = bounded(value, MAX_CONTENT_CHARS);
+		String bounded = Text.cut(value, MAX_CONTENT_CHARS);
 		return bounded == null ? "" : bounded;
-	}
-
-	/** Cuts to a length without splitting a surrogate pair. Null stays null. */
-	private static String bounded(String value, int max) {
-		if (value == null) {
-			return null;
-		}
-		if (value.length() <= max) {
-			return value;
-		}
-		int end = max;
-		if (Character.isHighSurrogate(value.charAt(end - 1))) {
-			end--;
-		}
-		return value.substring(0, end);
 	}
 
 }

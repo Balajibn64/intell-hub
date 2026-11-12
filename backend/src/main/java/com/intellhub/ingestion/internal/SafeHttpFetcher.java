@@ -71,7 +71,7 @@ final class SafeHttpFetcher implements AutoCloseable {
 		this.urlCheck = urlCheck;
 		this.client = HttpClients.custom()
 				.setConnectionManager(PoolingHttpClientConnectionManagerBuilder.create()
-						.setDnsResolver(new VettingDnsResolver(baseResolver, addressAllowed))
+						.setDnsResolver(new VettingDnsResolver(baseResolver, addressAllowed, settings.connectTimeout()))
 						.setDefaultConnectionConfig(ConnectionConfig.custom()
 								.setConnectTimeout(Timeout.of(settings.connectTimeout()))
 								.setSocketTimeout(Timeout.of(settings.responseTimeout()))
@@ -147,6 +147,9 @@ final class SafeHttpFetcher implements AutoCloseable {
 		}
 		catch (IOException | RuntimeException e) {
 			if (timedOut.get()) {
+				return Hop.failed(failure(FetchOutcome.Reason.TIMEOUT));
+			}
+			if (causedBy(e, DnsTimeoutException.class)) {
 				return Hop.failed(failure(FetchOutcome.Reason.TIMEOUT));
 			}
 			if (causedBy(e, BlockedAddressException.class)) {

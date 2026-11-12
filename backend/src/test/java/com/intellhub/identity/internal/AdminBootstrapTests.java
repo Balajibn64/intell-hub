@@ -94,6 +94,16 @@ class AdminBootstrapTests {
 	}
 
 	@Test
+	void thePlaceholderPasswordFromTheExampleFileFailsStartup() {
+		assertThatThrownBy(() -> bootstrapWith("admin@example.com", "change-me-to-a-strong-password").run(null))
+				.isInstanceOf(IllegalStateException.class)
+				.hasMessageContaining("placeholder")
+				.hasMessageNotContaining("change-me-to-a-strong-password");
+
+		assertThat(users.count()).isZero();
+	}
+
+	@Test
 	void aWeakConfiguredPasswordFailsStartupWithoutRevealingIt() {
 		assertThatThrownBy(() -> bootstrapWith("admin@example.com", "short").run(null))
 				.isInstanceOf(IllegalStateException.class)

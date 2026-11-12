@@ -5,17 +5,21 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
+import jakarta.persistence.PostLoad;
+import jakarta.persistence.PostPersist;
 import jakarta.persistence.Table;
+import jakarta.persistence.Transient;
 import java.time.Instant;
 import java.util.Objects;
 import java.util.UUID;
 import org.hibernate.annotations.DynamicUpdate;
+import org.springframework.data.domain.Persistable;
 
 /** A stored article. Enrichment fields are filled in later by the enrichment module. */
 @Entity
 @Table(name = "articles")
 @DynamicUpdate
-class Article {
+class Article implements Persistable<UUID> {
 
 	@Id
 	private UUID id;
@@ -69,6 +73,13 @@ class Article {
 	@Column(name = "enriched_by")
 	private String enrichedBy;
 
+	/**
+	 * The id is assigned by us, so without this Spring Data cannot tell a new article from an existing one
+	 * and would run a SELECT before every insert.
+	 */
+	@Transient
+	private boolean isNew = true;
+
 	protected Article() {
 		// for JPA
 	}
@@ -88,8 +99,20 @@ class Article {
 		this.status = ArticleStatus.PENDING;
 	}
 
-	UUID getId() {
+	@Override
+	public UUID getId() {
 		return id;
+	}
+
+	@Override
+	public boolean isNew() {
+		return isNew;
+	}
+
+	@PostPersist
+	@PostLoad
+	void markNotNew() {
+		this.isNew = false;
 	}
 
 	UUID getSourceId() {

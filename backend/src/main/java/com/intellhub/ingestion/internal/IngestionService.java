@@ -15,11 +15,13 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
-import java.util.concurrent.Callable;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -86,22 +88,20 @@ class IngestionService {
 		List<SourceInfo> enabled = sources.enabledSources();
 		List<SourceResult> results = new ArrayList<>();
 
+		// Set when the run gives up on its sources (time limit or interrupt). A source that is still running
+		// then stores nothing more and leaves its health record alone.
+		AtomicBoolean stopped = new AtomicBoolean();
 		ExecutorService pool = Executors.newFixedThreadPool(properties.concurrency());
 		try {
-			List<Callable<SourceResult>> tasks = new ArrayList<>();
+			List<Future<SourceResult>> futures = new ArrayList<>();
 			for (SourceInfo source : enabled) {
-				tasks.add(() -> processSource(source));
+				futures.add(pool.submit(() -> processSource(source, stopped)));
 			}
-			List<Future<SourceResult>> futures = pool.invokeAll(tasks, properties.runTimeout().toMillis(),
-					TimeUnit.MILLISECONDS);
+			long deadline = System.nanoTime() + properties.runTimeout().toNanos();
+			boolean interrupted = false;
 			for (int i = 0; i < futures.size(); i++) {
-				results.add(resultOf(enabled.get(i), futures.get(i)));
-			}
-		}
-		catch (InterruptedException e) {
-			Thread.currentThread().interrupt();
-			for (SourceInfo source : enabled) {
-				results.add(SourceResult.failed(source.id(), source.name(), "Run interrupted"));
+				results.add(collect(enabled.get(i), futures.get(i), deadline, interrupted, stopped));
+				interrupted = interrupted || Thread.currentThread().isInterrupted();
 			}
 		}
 		finally {
@@ -115,37 +115,60 @@ class IngestionService {
 		return summary;
 	}
 
-	private SourceResult resultOf(SourceInfo source, Future<SourceResult> future) {
-		if (future.isCancelled()) {
-			// Not the source's fault, so its health record is left alone.
-			return SourceResult.failed(source.id(), source.name(), "Run time limit reached");
+	/**
+	 * Takes one source's result, waiting no longer than the run deadline. A result that is already finished
+	 * is always kept, even after a timeout or an interrupt, so the summary never understates what was done.
+	 */
+	private SourceResult collect(SourceInfo source, Future<SourceResult> future, long deadlineNanos, boolean interrupted,
+			AtomicBoolean stopped) {
+		if (future.isDone() && !future.isCancelled()) {
+			return finished(source, future);
 		}
-		try {
-			return future.get();
+		if (!interrupted) {
+			try {
+				return future.get(Math.max(0, deadlineNanos - System.nanoTime()), TimeUnit.NANOSECONDS);
+			}
+			catch (TimeoutException e) {
+				// Not the source's fault, so its health record is left alone.
+				stopped.set(true);
+				future.cancel(true);
+				return SourceResult.failed(source.id(), source.name(), "Run time limit reached");
+			}
+			catch (InterruptedException e) {
+				Thread.currentThread().interrupt();
+			}
+			catch (ExecutionException | CancellationException e) {
+				return SourceResult.failed(source.id(), source.name(), "Unexpected error");
+			}
 		}
-		catch (Exception e) {
-			return SourceResult.failed(source.id(), source.name(), "Unexpected error");
-		}
+		stopped.set(true);
+		future.cancel(true);
+		return SourceResult.failed(source.id(), source.name(), "Run interrupted");
 	}
 
-	private SourceResult processSource(SourceInfo source) {
+	private SourceResult finished(SourceInfo source, Future<SourceResult> future) {
+		return future.state() == Future.State.SUCCESS ? future.resultNow()
+				: SourceResult.failed(source.id(), source.name(), "Unexpected error");
+	}
+
+	private SourceResult processSource(SourceInfo source, AtomicBoolean stopped) {
 		if (source.type() != SourceType.RSS) {
 			return SourceResult.unsupported(source.id(), source.name());
 		}
 		try {
-			return ingest(source);
+			return ingest(source, stopped);
 		}
 		catch (RuntimeException e) {
 			// Only the class name is logged: the message could contain text from the feed.
 			log.warn("Ingestion of source {} failed unexpectedly: {}", source.id(), e.getClass().getSimpleName());
-			return fail(source, "Unexpected error");
+			return fail(source, "Unexpected error", stopped);
 		}
 	}
 
-	private SourceResult ingest(SourceInfo source) {
+	private SourceResult ingest(SourceInfo source, AtomicBoolean stopped) {
 		FetchOutcome outcome = fetcher.fetch(source.url());
 		if (outcome instanceof FetchOutcome.Failure failure) {
-			return fail(source, failure.message());
+			return fail(source, failure.message(), stopped);
 		}
 		byte[] body = ((FetchOutcome.Success) outcome).body();
 		Instant now = clock.instant();
@@ -154,13 +177,17 @@ class IngestionService {
 			feed = parser.parse(body, new ParseLimits(properties.maxEntries(), now.minus(properties.maxAge())));
 		}
 		catch (FeedParseException e) {
-			return fail(source, "Invalid feed");
+			return fail(source, "Invalid feed", stopped);
 		}
 		int created = 0;
 		int duplicates = 0;
 		int skipped = feed.skippedInvalid() + feed.skippedOld();
 		int errors = 0;
+		String firstErrorType = null;
 		for (ParsedEntry entry : feed.entries()) {
+			if (stopped.get()) {
+				break;
+			}
 			try {
 				NewArticle article = toArticle(entry, source.id(), now);
 				if (article == null) {
@@ -177,15 +204,31 @@ class IngestionService {
 			}
 			catch (RuntimeException e) {
 				errors++;
+				if (firstErrorType == null) {
+					firstErrorType = e.getClass().getSimpleName();
+				}
 			}
 		}
-		sources.recordFetchResult(source.id(), FetchResult.ok());
+		if (errors > 0) {
+			// Only the exception class: its message could contain text from the feed.
+			log.warn("Source {}: {} of {} entries could not be stored ({})", source.id(), errors, feed.entries().size(),
+					firstErrorType);
+			if (errors == feed.entries().size()) {
+				// Nothing could be stored, so this is not a healthy fetch even though the feed itself was fine.
+				return fail(source, "Could not store entries", stopped);
+			}
+		}
+		if (!stopped.get()) {
+			sources.recordFetchResult(source.id(), FetchResult.ok());
+		}
 		return new SourceResult(source.id(), source.name(), Status.OK, null, feed.entries().size(), created, duplicates,
 				skipped, errors);
 	}
 
-	private SourceResult fail(SourceInfo source, String reason) {
-		sources.recordFetchResult(source.id(), FetchResult.failed(reason));
+	private SourceResult fail(SourceInfo source, String reason, AtomicBoolean stopped) {
+		if (!stopped.get()) {
+			sources.recordFetchResult(source.id(), FetchResult.failed(reason));
+		}
 		return SourceResult.failed(source.id(), source.name(), reason);
 	}
 

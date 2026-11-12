@@ -1,13 +1,10 @@
 package com.intellhub.identity.internal;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
+import com.intellhub.shared.Hashes;
 import java.security.SecureRandom;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.Base64;
-import java.util.HexFormat;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
@@ -104,13 +101,7 @@ class RefreshTokenService {
 	}
 
 	static String hash(String rawToken) {
-		try {
-			byte[] digest = MessageDigest.getInstance("SHA-256").digest(rawToken.getBytes(StandardCharsets.UTF_8));
-			return HexFormat.of().formatHex(digest);
-		}
-		catch (NoSuchAlgorithmException e) {
-			throw new IllegalStateException("SHA-256 is always available", e);
-		}
+		return Hashes.sha256Hex(rawToken);
 	}
 
 	/** A token value (shown once, to the client) and when it stops being valid. */

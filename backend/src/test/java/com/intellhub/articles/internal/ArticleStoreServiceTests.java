@@ -15,6 +15,9 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import jakarta.persistence.EntityManagerFactory;
+import org.hibernate.SessionFactory;
+import org.hibernate.stat.Statistics;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -40,12 +43,16 @@ class ArticleStoreServiceTests {
 
 	private final JdbcTemplate jdbc;
 
+	private final EntityManagerFactory entityManagerFactory;
+
 	private UUID sourceId;
 
-	ArticleStoreServiceTests(ArticleStore store, ArticleRepository repository, JdbcTemplate jdbc) {
+	ArticleStoreServiceTests(ArticleStore store, ArticleRepository repository, JdbcTemplate jdbc,
+			EntityManagerFactory entityManagerFactory) {
 		this.store = store;
 		this.repository = repository;
 		this.jdbc = jdbc;
+		this.entityManagerFactory = entityManagerFactory;
 	}
 
 	@BeforeEach
@@ -74,6 +81,19 @@ class ArticleStoreServiceTests {
 		assertThat(saved.getContentSanitized()).isEqualTo("<p>Body</p>");
 		assertThat(saved.getPublishedAt()).isEqualTo(PUBLISHED);
 		assertThat(saved.getIngestedAt()).isAfterOrEqualTo(before.minusSeconds(1));
+	}
+
+	@Test
+	void aNewArticleCostsTwoChecksAndOneInsertWithNoWastedSelectBeforeIt() {
+		Statistics statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
+		statistics.clear();
+
+		store.store(article("https://example.com/a", HASH_A));
+
+		// exists(url), exists(hash), insert. Without Persistable an extra SELECT by id ran before the insert.
+		assertThat(statistics.getPrepareStatementCount()).isEqualTo(3);
+		assertThat(statistics.getEntityInsertCount()).isEqualTo(1);
+		assertThat(statistics.getEntityLoadCount()).isZero();
 	}
 
 	@Test

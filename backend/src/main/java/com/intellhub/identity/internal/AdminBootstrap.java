@@ -2,6 +2,7 @@ package com.intellhub.identity.internal;
 
 import com.intellhub.identity.Role;
 import com.intellhub.shared.ApiException;
+import com.intellhub.shared.Placeholders;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.ApplicationArguments;
@@ -39,6 +40,9 @@ class AdminBootstrap implements ApplicationRunner {
 		if (!admin.configured()) {
 			log.warn("No users exist and ADMIN_EMAIL / ADMIN_PASSWORD are not set; nobody can log in yet");
 			return;
+		}
+		if (Placeholders.isPlaceholder(admin.password())) {
+			throw new IllegalStateException("ADMIN_PASSWORD still has the placeholder value from .env.example; set a real one");
 		}
 		try {
 			User created = userService.create(admin.email(), admin.password(), Role.ADMIN);

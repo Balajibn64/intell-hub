@@ -1,10 +1,12 @@
 package com.intellhub.ingestion.internal;
 
 import com.intellhub.articles.NewArticle;
+import com.intellhub.shared.Text;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.nodes.Entities;
+import org.jsoup.parser.Parser;
 import org.jsoup.safety.Safelist;
 import org.springframework.stereotype.Component;
 
@@ -30,7 +32,15 @@ class ContentSanitizer {
 					"h3", "h4", "h5", "h6", "hr")
 			.addAttributes("a", "href")
 			.addProtocols("a", "href", "http", "https")
-			.addEnforcedAttribute("a", "rel", "nofollow noopener noreferrer");
+			.addEnforcedAttribute("a", "rel", "nofollow noopener noreferrer")
+			.preserveRelativeLinks(false);
+
+	/** Zero-width characters and bidirectional overrides, which can make text display misleadingly. */
+	private static final java.util.regex.Pattern INVISIBLE = java.util.regex.Pattern
+			.compile("[\\u200B-\\u200F\\u202A-\\u202E\\u2060-\\u2064\\u2066-\\u2069\\uFEFF]");
+
+	private static final java.util.regex.Pattern LINE_BREAKS = java.util.regex.Pattern
+			.compile("[\\p{Cntrl}\\u0085\\u2028\\u2029]");
 
 	private static final String NOISE = "script, style, noscript, iframe, object, embed, template, svg, math, form, "
 			+ "head, title, link, meta, base";
@@ -48,7 +58,7 @@ class ContentSanitizer {
 			return "";
 		}
 		Document.OutputSettings output = new Document.OutputSettings().prettyPrint(false);
-		String clean = Jsoup.clean(rawHtml, baseUrl == null ? "" : baseUrl, ALLOWED.preserveRelativeLinks(false), output);
+		String clean = Jsoup.clean(rawHtml, baseUrl == null ? "" : baseUrl, ALLOWED, output);
 		if (clean.length() <= NewArticle.MAX_CONTENT) {
 			return clean;
 		}
@@ -70,15 +80,34 @@ class ContentSanitizer {
 		return doc.text().strip();
 	}
 
-	/** A plain-text title of at most {@link NewArticle#MAX_TITLE} characters. */
+	/**
+	 * A plain-text title of at most {@link NewArticle#MAX_TITLE} characters. Titles are text, not HTML:
+	 * only character entities are decoded, so a title such as {@code List<String> in Java} or
+	 * {@code Using <form> validation} is kept as written. It must be shown as text, never as HTML.
+	 */
 	String title(String raw) {
-		return cut(toPlainText(raw), NewArticle.MAX_TITLE);
+		return plainLine(raw, NewArticle.MAX_TITLE);
 	}
 
 	/** A plain-text author of at most {@link NewArticle#MAX_AUTHOR} characters, or null when empty. */
 	String author(String raw) {
-		String text = cut(toPlainText(raw), NewArticle.MAX_AUTHOR);
+		String text = plainLine(raw, NewArticle.MAX_AUTHOR);
 		return text.isEmpty() ? null : text;
+	}
+
+	/**
+	 * Decodes entities, replaces control characters and line breaks with spaces, drops invisible and
+	 * text-direction override characters (used to make text read differently from what it is), collapses
+	 * spaces and cuts to the limit.
+	 */
+	private static String plainLine(String raw, int max) {
+		if (raw == null) {
+			return "";
+		}
+		String decoded = Parser.unescapeEntities(raw, false);
+		String cleaned = INVISIBLE.matcher(decoded).replaceAll("");
+		cleaned = LINE_BREAKS.matcher(cleaned).replaceAll(" ");
+		return cut(cleaned.replaceAll("\\s+", " ").strip(), max);
 	}
 
 	/** A plain-text excerpt of at most {@link NewArticle#MAX_EXCERPT} characters, ending in an ellipsis when cut. */
@@ -92,16 +121,9 @@ class ContentSanitizer {
 		return cut(plainText, NewArticle.MAX_EXCERPT - ELLIPSIS.length()).stripTrailing() + ELLIPSIS;
 	}
 
-	/** Cuts to at most {@code max} characters without splitting a surrogate pair. */
+	/** Cuts to at most {@code max} characters without splitting a surrogate pair, dropping trailing spaces. */
 	static String cut(String value, int max) {
-		if (value.length() <= max) {
-			return value;
-		}
-		int end = max;
-		if (Character.isHighSurrogate(value.charAt(end - 1))) {
-			end--;
-		}
-		return value.substring(0, end).stripTrailing();
+		return Text.cut(value, max).stripTrailing();
 	}
 
 }

@@ -31,6 +31,12 @@ class IngestionPropertiesTests {
 	}
 
 	@Test
+	void thePlaceholderSecretFromTheExampleFileIsRejected() {
+		assertThat(validator.validate(with("change-me-to-a-long-random-value-of-32-chars-or-more", 100, 4))).isNotEmpty();
+		assertThat(validator.validate(with("Change-Me-" + "x".repeat(40), 100, 4))).isNotEmpty();
+	}
+
+	@Test
 	void anUnsetOrBlankSecretMeansTheEndpointIsOff() {
 		assertThat(with(null, 100, 4).secretConfigured()).isFalse();
 		assertThat(with("   ", 100, 4).secretConfigured()).isFalse();

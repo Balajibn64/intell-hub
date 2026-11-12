@@ -166,7 +166,7 @@ class IngestionServiceTests {
 	void storesNewArticlesCleanedAndReportsHealth() {
 		Instant published = Instant.now().minus(Duration.ofHours(3)).truncatedTo(java.time.temporal.ChronoUnit.SECONDS);
 		serve("/feed", feed(
-				item("<b>First</b> post", "https://example.com/first?utm_source=rss&id=7#comments",
+				item("First post", "https://example.com/first?utm_source=rss&id=7#comments",
 						"<p>Hello <b>world</b></p><script>alert(1)</script>", published),
 				item("Second post", "https://example.com/second", "Plain text only", published.minusSeconds(60))));
 		UUID id = rssSource("Test feed", "/feed");
@@ -391,7 +391,8 @@ class IngestionServiceTests {
 		ingestion.run();
 
 		Map<String, Object> stored = jdbc.queryForMap("select title, content_sanitized, excerpt from articles");
-		assertThat(stored.get("title")).isEqualTo("Bold title");
+		// Titles are text, kept as written; the UI must show them as text, never as HTML.
+		assertThat(stored.get("title")).isEqualTo("<b>Bold</b> <script>alert(1)</script> title");
 		String html = ((String) stored.get("content_sanitized")).toLowerCase();
 		assertThat(html).contains("<p>ok</p>").contains("href=\"https://example.com/fine\"").doesNotContain("script")
 				.doesNotContain("onerror").doesNotContain("javascript:").doesNotContain("<img").doesNotContain("iframe");

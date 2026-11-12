@@ -1,5 +1,6 @@
 package com.intellhub.ingestion.internal;
 
+import com.intellhub.shared.Placeholders;
 import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
@@ -50,6 +51,11 @@ record IngestionProperties(
 	@AssertTrue(message = "INGEST_SECRET must be at least 32 characters when set")
 	boolean isSecretStrongEnough() {
 		return !secretConfigured() || ingestSecret.length() >= MIN_SECRET_LENGTH;
+	}
+
+	@AssertTrue(message = "INGEST_SECRET still has the placeholder value from .env.example; generate a real one or leave it unset")
+	boolean isSecretNotPlaceholder() {
+		return !Placeholders.isPlaceholder(ingestSecret);
 	}
 
 }
