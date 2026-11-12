@@ -74,7 +74,7 @@ The curated tags are not a migration: a startup seeder creates them from `taxono
 First admin user comes from `ADMIN_EMAIL` and `ADMIN_PASSWORD` on first start, only while no users exist, not from a migration, so no credentials live in the repo.
 
 ## 6. Retention purge
-Nightly: delete `article_events` and `articles` older than the retention window, excluding articles present in `saved_articles`. Delete in batches to keep transactions short. Expired and revoked refresh tokens are deleted in the same job.
+Nightly (when `RETENTION_ENABLED=true`, or by hand): delete `articles` published before the retention window (7 days by default), excluding any a user has saved; their `article_events` and tag links go with them by cascade. Each batch (500) is one transaction: the expired articles are locked `FOR UPDATE`, personalization says which are saved by anyone, and the rest are deleted, so a save made at the same moment cannot be lost or left half-done. Expired refresh tokens (expired for more than one day) are deleted in the same job; revoked tokens that have not expired are kept, because replaying one is how token reuse is detected. Tags, learned weights and `llm_usage` are not touched. The window must not be shorter than the ingestion age limit (`intellhub.ingestion.max-age`, also 7 days) or articles would be purged and fetched again; startup refuses that.
 
 ## 7. REST API
 Base path `/api/v1`. JSON. Auth via `Authorization: Bearer <access JWT>`, except where stated. Errors use one shape: `{ "code", "message", "details" }`. List endpoints are paginated with `page` and `size` (size capped).
@@ -111,7 +111,8 @@ Base path `/api/v1`. JSON. Auth via `Authorization: Bearer <access JWT>`, except
 | PATCH | /api/v1/admin/users/{id} | Change role or enabled |
 | GET, POST | /api/v1/admin/sources | List with health fields, create. Each type may only use its own address: `RSS` any public feed; `HN` exactly `https://hn.algolia.com/api/v1/search?tags=front_page&hitsPerPage=30`; `HUGGINGFACE` exactly `https://huggingface.co/api/daily_papers`; `GITHUB_RELEASES` `https://github.com/<owner>/<repo>/releases.atom`; `ARXIV` `https://rss.arxiv.org/(rss\|atom)/<category>`. Config: `maxEntries` 1-100 (all types), `minPoints` 0-1000 (HN). Errors: 400 `INVALID_SOURCE_URL` / `INVALID_SOURCE_CONFIG` / `VALIDATION_FAILED`, 409 `SOURCE_EXISTS` |
 | PATCH, DELETE | /api/v1/admin/sources/{id} | PATCH changes only `name`, `enabled` and `config`; `type` and `url` are fixed (any attempt to send them is ignored). DELETE is permanent, disabling is the normal way to stop a source. 404 `SOURCE_NOT_FOUND` |
-| GET | /api/v1/admin/status | Source health, enrichment status counts, LLM budget used today |
+| GET | /api/v1/admin/status | Read-only, no input. `{sources:{total,enabled,failing,neverFetched,items:[{id,name,type,enabled,lastFetchedAt,lastStatus,lastError,consecutiveFailures}]}, articles:{total,byStatus,oldestPublishedAt}, enrichment:{enabled,providers,day,budget:{daily,reservedForReaders,usedToday,remainingForReaders,remainingForBackground},usageToday:[{provider,calls,failures}]}, retention:{scheduled,windowDays,lastRun}}`. No addresses, settings, keys or article text. `lastRun` is null until a purge has run since the app started |
+| POST | /api/v1/admin/retention/purge | Runs the purge by hand. `dryRun` defaults to true (nothing is deleted); only the exact words `true` and `false` are accepted (anything else is a 400, so `0`, `no` or `off` cannot turn into a real deletion). Returns `{dryRun, articlesExpired, articlesKeptBecauseSaved, articlesDeleted, tokensDeleted, durationMillis, finishedAt}`. 409 `RETENTION_RUNNING` if a purge is already running |
 
 ### Internal
 | Method | Path | Notes |
@@ -131,6 +132,6 @@ Base path `/api/v1`. JSON. Auth via `Authorization: Bearer <access JWT>`, except
    - relevance is `relevance_score`, else half the cheap `heuristic_score`, else 0. affinity is `1 - exp(-s)` where `s` is the sum of the reader's weights over the article's tags. recency is `0.5 ^ (age / 72 hours)`.
    - A tag's weight is the chosen weight plus the learned weight faded by half every 14 days. A click adds 0.05 to each of the article's tags, a save 0.15, an unsave takes 0.15 back; learned stays between 0 and 1.
    - Computed at query time, with one "now" per request. Between page requests the order can shift slightly as time passes.
-2. Retention window length: 7 or 14 days (PRD says 1-2 weeks).
+2. ~~Retention window length~~ Decided (M9): 7 days; saved articles are kept for as long as any user has them saved.
 3. ~~Offset or cursor pagination~~ Decided (M4): offset pages. New articles arriving mid-scroll can shift items by one; accepted at this scale.
 4. ~~Search scope~~ Decided (M4): title, excerpt and summary, not full content.

@@ -93,6 +93,19 @@ is spent the remaining articles wait until tomorrow. The budget day starts at mi
 default (`ENRICHMENT_BUDGET_ZONE`), which is when Gemini's daily quota resets. Whatever a model returns is treated as untrusted and
 validated; summaries, tags and names are text, never HTML.
 
+## Retention and the admin status
+Articles are kept for 7 days (`RETENTION_WINDOW`) and then purged, except any a user has saved: a saved article
+stays for as long as at least one user has it saved, and unsaving it makes it purgeable at the next run. Expired
+login tokens are cleaned up in the same job. The scheduled purge is **off unless `RETENTION_ENABLED=true`**
+(`RETENTION_CRON`, default 03:30 daily), so a development run never deletes data by surprise. An admin can run it
+by hand: `POST /api/v1/admin/retention/purge` is a dry run that only reports what it would do, and
+`?dryRun=false` (exactly that word; `0`, `no` or `off` are refused) deletes. The window must not be shorter than
+the ingestion age limit (also 7 days), or startup refuses it.
+
+`GET /api/v1/admin/status` (admin only) shows how each source is doing (last fetch, status, failure streak), how
+many articles are in each status, whether enrichment is on with today's model-call budget and per-provider usage,
+and what the last purge did. It shows no addresses, settings, keys or article text.
+
 ## Ingestion
 Ingestion fetches every enabled RSS source, cleans the entries and stores the new ones. It is started
 with a shared secret (set `INGEST_SECRET`, 32+ characters; without it the endpoint refuses every call):
