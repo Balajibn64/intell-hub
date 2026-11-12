@@ -52,7 +52,7 @@ class LlmBudgetTests {
 
 	private static EnrichmentProperties props(int budget, int reserved, String zone) {
 		return new EnrichmentProperties("fake", budget, reserved, 5, 3, Duration.ofSeconds(30), Duration.ofMinutes(10), 20,
-				ZoneId.of(zone), 5000, 0.15);
+				ZoneId.of(zone), 5000, 0.15, false);
 	}
 
 	private LlmBudget budget(int budget, int reserved) {

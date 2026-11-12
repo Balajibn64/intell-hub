@@ -26,6 +26,7 @@ import org.springframework.validation.annotation.Validated;
  * @param budgetZone the time zone whose midnight starts a new day of budget
  * @param maxFreeTags most free tags that may exist
  * @param triageThreshold pre-filter score below which an article is only shown with its excerpt
+ * @param seedTaxonomy create the curated tags at startup (idempotent)
  */
 @ConfigurationProperties("intellhub.enrichment")
 @Validated
@@ -40,7 +41,8 @@ record EnrichmentProperties(
 		@DefaultValue("20") @Min(1) @Max(200) int maxBatchesPerTick,
 		@DefaultValue("UTC") @NotNull ZoneId budgetZone,
 		@DefaultValue("5000") @Min(0) int maxFreeTags,
-		@DefaultValue("0.15") @DecimalMin("0.0") @DecimalMax("1.0") double triageThreshold) {
+		@DefaultValue("0.15") @DecimalMin("0.0") @DecimalMax("1.0") double triageThreshold,
+		@DefaultValue("true") boolean seedTaxonomy) {
 
 	boolean enabled() {
 		return provider != null && !provider.isBlank();

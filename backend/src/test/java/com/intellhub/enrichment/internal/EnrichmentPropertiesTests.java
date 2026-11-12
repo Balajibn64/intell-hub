@@ -14,7 +14,7 @@ class EnrichmentPropertiesTests {
 
 	private static EnrichmentProperties with(String provider, int budget, int reserved, int batch, double threshold) {
 		return new EnrichmentProperties(provider, budget, reserved, batch, 3, Duration.ofSeconds(30), Duration.ofMinutes(10), 20,
-				ZoneId.of("UTC"), 5000, threshold);
+				ZoneId.of("UTC"), 5000, threshold, true);
 	}
 
 	@Test
