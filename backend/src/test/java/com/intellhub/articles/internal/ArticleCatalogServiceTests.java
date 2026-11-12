@@ -94,7 +94,9 @@ class ArticleCatalogServiceTests {
 		UUID tieA = article("tie a", BASE.plusSeconds(50));
 		UUID tieB = article("tie b", BASE.plusSeconds(50));
 		List<UUID> tied = new ArrayList<>(List.of(tieA, tieB));
-		tied.sort((x, y) -> y.compareTo(x));
+		// PostgreSQL orders uuids as unsigned bytes, which matches comparing their lowercase hex text.
+		// (Java's UUID.compareTo compares as signed numbers and disagrees for about half of all pairs.)
+		tied.sort((x, y) -> y.toString().compareTo(x.toString()));
 
 		List<UUID> order = ids(catalog.search(null, 0, 10));
 
