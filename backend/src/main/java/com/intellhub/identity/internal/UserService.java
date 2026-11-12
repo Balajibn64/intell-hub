@@ -44,9 +44,18 @@ class UserService {
 					new User(UUID.randomUUID(), normalized, passwords.hash(password), role, clock.instant()));
 		}
 		catch (DataIntegrityViolationException e) {
-			// Lost a race with a concurrent request for the same email.
-			throw emailTaken();
+			// Lost a race with a concurrent request for the same email. Any other constraint failure
+			// is a real error and must not be disguised as a duplicate.
+			if (isEmailUniqueViolation(e)) {
+				throw emailTaken();
+			}
+			throw e;
 		}
+	}
+
+	private static boolean isEmailUniqueViolation(DataIntegrityViolationException e) {
+		String message = e.getMostSpecificCause().getMessage();
+		return message != null && message.contains("users_email_unique");
 	}
 
 	List<User> listAll() {
