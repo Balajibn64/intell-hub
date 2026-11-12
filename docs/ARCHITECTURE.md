@@ -41,6 +41,9 @@ flowchart TD
     feed -->|reads articles API| articles
     feed -->|reads weights API| personalization
     personalization -->|user id| identity
+    personalization -->|checks the article exists| articles
+    feed -->|names| sources
+    feed -->|current user| identity
     retention -->|purge API| articles
     enrichment -->|on-open request API| articles
 ```
