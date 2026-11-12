@@ -13,7 +13,9 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.EnumMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.ExecutionException;
@@ -48,7 +50,7 @@ class IngestionService {
 
 	private final SafeHttpFetcher fetcher;
 
-	private final FeedParser parser;
+	private final Map<SourceType, SourceParser> parsers = new EnumMap<>(SourceType.class);
 
 	private final ContentSanitizer sanitizer;
 
@@ -58,12 +60,16 @@ class IngestionService {
 
 	private final AtomicBoolean running = new AtomicBoolean();
 
-	IngestionService(SourceCatalog sources, ArticleStore articles, SafeHttpFetcher fetcher, FeedParser parser,
+	IngestionService(SourceCatalog sources, ArticleStore articles, SafeHttpFetcher fetcher, List<SourceParser> parsers,
 			ContentSanitizer sanitizer, IngestionProperties properties, Clock clock) {
 		this.sources = sources;
 		this.articles = articles;
 		this.fetcher = fetcher;
-		this.parser = parser;
+		for (SourceParser parser : parsers) {
+			for (SourceType type : parser.types()) {
+				this.parsers.put(type, parser);
+			}
+		}
 		this.sanitizer = sanitizer;
 		this.properties = properties;
 		this.clock = clock;
@@ -152,7 +158,7 @@ class IngestionService {
 	}
 
 	private SourceResult processSource(SourceInfo source, AtomicBoolean stopped) {
-		if (source.type() != SourceType.RSS) {
+		if (!parsers.containsKey(source.type())) {
 			return SourceResult.unsupported(source.id(), source.name());
 		}
 		try {
@@ -174,7 +180,8 @@ class IngestionService {
 		Instant now = clock.instant();
 		ParsedFeed feed;
 		try {
-			feed = parser.parse(body, new ParseLimits(properties.maxEntries(), now.minus(properties.maxAge())));
+			feed = parsers.get(source.type()).parse(source, body,
+					new ParseLimits(entryLimit(source), now.minus(properties.maxAge())));
 		}
 		catch (FeedParseException e) {
 			return fail(source, "Invalid feed", stopped);
@@ -223,6 +230,15 @@ class IngestionService {
 		}
 		return new SourceResult(source.id(), source.name(), Status.OK, null, feed.entries().size(), created, duplicates,
 				skipped, errors);
+	}
+
+	/** The global limit, or the source's own (lower) one so a busy feed cannot crowd out the others. */
+	private int entryLimit(SourceInfo source) {
+		Object own = source.config().get("maxEntries");
+		if (own instanceof Number number && number.longValue() >= 1 && number.longValue() < properties.maxEntries()) {
+			return number.intValue();
+		}
+		return properties.maxEntries();
 	}
 
 	private SourceResult fail(SourceInfo source, String reason, AtomicBoolean stopped) {
