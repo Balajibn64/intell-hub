@@ -89,8 +89,8 @@ class SourceService implements SourceCatalog {
 			throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_FAILED", "Type is required");
 		}
 		String cleanName = cleanName(name);
-		SourceUrlValidator.validate(url);
-		Map<String, Object> cleanConfig = cleanConfig(config);
+		SourceUrlValidator.validate(type, url);
+		Map<String, Object> cleanConfig = cleanConfig(type, config);
 		String normalizedUrl = normalizeUrl(url);
 		if (sources.existsByTypeAndUrl(type, normalizedUrl)) {
 			throw exists();
@@ -120,7 +120,7 @@ class SourceService implements SourceCatalog {
 			source.setEnabled(enabled);
 		}
 		if (config != null) {
-			source.replaceConfig(cleanConfig(config));
+			source.replaceConfig(cleanConfig(source.getType(), config));
 		}
 		return sources.saveAndFlush(source);
 	}
@@ -147,10 +147,10 @@ class SourceService implements SourceCatalog {
 		return stripped;
 	}
 
-	private Map<String, Object> cleanConfig(Map<String, Object> config) {
+	private Map<String, Object> cleanConfig(SourceType type, Map<String, Object> config) {
 		Map<String, Object> value = config == null ? Map.of() : config;
 		int bytes = objectMapper.writeValueAsBytes(value).length;
-		SourceConfigValidator.validate(value, bytes);
+		SourceConfigValidator.validate(type, value, bytes);
 		return value;
 	}
 

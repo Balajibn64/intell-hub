@@ -290,20 +290,171 @@ class IngestionServiceTests {
 	}
 
 	@Test
-	void disabledAndUnsupportedSourcesAreNotFetched() {
+	void disabledSourcesAreNotFetched() {
 		serve("/off", feed(item("Off", "https://example.com/off", "x", null)));
-		serve("/hn", feed(item("HN", "https://example.com/hn", "x", null)));
-		source("RSS", "Disabled", "/off", false);
+		UUID off = source("HUGGINGFACE", "Disabled papers", "/off", false);
+
+		IngestSummary summary = ingestion.run();
+
+		assertThat(summary.sourcesTotal()).isZero();
+		assertThat(server.requests()).isEmpty();
+		assertThat(health(off).get("last_status")).isNull();
+		assertThat(articleCount()).isZero();
+	}
+
+	// ---- Hugging Face daily papers ----
+
+	@Test
+	void hugFacePapersAreStoredWithABuiltLinkAndEscapedSummaryAndNothingElseIsFollowed() {
+		String recent = DateTimeFormatter.ISO_INSTANT.format(Instant.now().minusSeconds(3600));
+		server.on("/hf", FakeFeedServer.body(200, "application/json", "[{\"paper\":{\"id\":\"2611.12869\",\"title\":\"A paper\","
+				+ "\"summary\":\"We study <script>x()</script> things.\",\"authors\":[{\"name\":\"Ada\"}],\"publishedAt\":\"" + recent + "\",\"upvotes\":9}},"
+				+ "{\"paper\":{\"id\":\"../../etc/passwd\",\"title\":\"Bad id\"}}]"));
+		UUID hf = source("HUGGINGFACE", "Hugging Face papers", "/hf", true);
+
+		IngestSummary summary = ingestion.run();
+
+		assertThat(resultFor(summary, hf).status()).isEqualTo(Status.OK);
+		assertThat(summary.articlesCreated()).isEqualTo(1);
+		assertThat(jdbc.queryForObject("select canonical_url from articles", String.class)).isEqualTo("https://huggingface.co/papers/2611.12869");
+		assertThat(jdbc.queryForObject("select author from articles", String.class)).isEqualTo("Ada");
+		String content = jdbc.queryForObject("select content_sanitized from articles", String.class);
+		// The summary is plain text: markup in it is shown as text (escaped), never as a tag.
+		assertThat(content).contains("We study").contains("&lt;script&gt;").doesNotContain("<script");
+		assertThat(health(hf).get("last_status")).isEqualTo("OK");
+		assertThat(ingestion.run().duplicates()).isEqualTo(1);
+	}
+
+	@Test
+	void aHugFaceAnswerThatIsNotAnArrayIsAFixedFailure() {
+		server.on("/hf", FakeFeedServer.body(200, "application/json", "{\"error\":\"rate limited secret-body\"}"));
+		UUID hf = source("HUGGINGFACE", "Hugging Face papers", "/hf", true);
+
+		IngestSummary summary = ingestion.run();
+
+		assertThat(resultFor(summary, hf).status()).isEqualTo(Status.FAILED);
+		assertThat(health(hf).get("last_error")).isEqualTo("Invalid feed");
+		assertThat(articleCount()).isZero();
+	}
+
+	// ---- source types that are just feeds ----
+
+	private static final String GITHUB_ATOM = """
+			<?xml version="1.0" encoding="UTF-8"?>
+			<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en-US">
+			  <id>tag:github.com,2008:https://github.com/acme/tool/releases</id>
+			  <title>Release notes from tool</title>
+			  <updated>%1$s</updated>
+			  <entry>
+			    <id>tag:github.com,2008:Repository/1/v2.0.0</id>
+			    <updated>%1$s</updated>
+			    <link rel="alternate" type="text/html" href="https://github.com/acme/tool/releases/tag/v2.0.0"/>
+			    <title>v2.0.0</title>
+			    <content type="html">&lt;p&gt;Faster &lt;b&gt;startup&lt;/b&gt; and a new plugin API.&lt;/p&gt;&lt;script&gt;alert(1)&lt;/script&gt;</content>
+			    <author><name>maintainer</name></author>
+			  </entry>
+			</feed>""";
+
+	@Test
+	void gitHubReleasesAndArxivFeedsAreIngestedLikeAnyFeedAndTheirContentIsStillCleaned() {
+		String recent = DateTimeFormatter.ISO_INSTANT.format(Instant.now().minusSeconds(3600));
+		server.on("/releases.atom", FakeFeedServer.body(200, "application/atom+xml", GITHUB_ATOM.formatted(recent)));
+		serve("/rss/cs.AI", feed(item("A new training method", "https://arxiv.org/abs/2611.00001",
+				"arXiv:2611.00001v1 Announce Type: new Abstract: We train models faster.", Instant.now().minusSeconds(3600))));
+		UUID github = source("GITHUB_RELEASES", "acme/tool releases", "/releases.atom", true);
+		UUID arxiv = source("ARXIV", "arXiv cs.AI", "/rss/cs.AI", true);
+
+		IngestSummary summary = ingestion.run();
+
+		assertThat(resultFor(summary, github).status()).isEqualTo(Status.OK);
+		assertThat(resultFor(summary, arxiv).status()).isEqualTo(Status.OK);
+		assertThat(summary.articlesCreated()).isEqualTo(2);
+		assertThat(health(github).get("last_status")).isEqualTo("OK");
+		assertThat(health(arxiv).get("last_status")).isEqualTo("OK");
+		String content = jdbc.queryForObject("select content_sanitized from articles where title = 'v2.0.0'", String.class);
+		assertThat(content).contains("Faster").doesNotContain("<script").doesNotContain("alert(1)");
+		assertThat(jdbc.queryForObject("select excerpt from articles where title = 'A new training method'", String.class))
+				.contains("We train models faster");
+
+		assertThat(ingestion.run().duplicates()).isEqualTo(2); // a second run stores nothing new
+	}
+
+	@Test
+	void aSourcesOwnEntryLimitCapsWhatIsTakenFromABusyFeed() {
+		StringBuilder items = new StringBuilder();
+		for (int i = 0; i < 10; i++) {
+			items.append(item("Paper " + i, "https://arxiv.org/abs/2611.1000" + i, "abstract " + i, Instant.now().minusSeconds(60L * i)));
+		}
+		serve("/rss/cs.LG", feed(items.toString()));
+		UUID arxiv = source("ARXIV", "arXiv cs.LG", "/rss/cs.LG", true);
+		jdbc.update("update sources set config = '{\"maxEntries\": 3}'::jsonb where id = ?", arxiv);
+
+		IngestSummary summary = ingestion.run();
+
+		assertThat(resultFor(summary, arxiv).created()).isEqualTo(3);
+		assertThat(articleCount()).isEqualTo(3);
+	}
+
+	@Test
+	void aSourceLimitAboveTheGlobalOneOrOfTheWrongTypeChangesNothing() {
+		serve("/rss/a", feed(item("One", "https://example.com/1", "x", null), item("Two", "https://example.com/2", "x", null)));
+		UUID a = source("ARXIV", "A", "/rss/a", true);
+		jdbc.update("update sources set config = '{\"maxEntries\": 100000}'::jsonb where id = ?", a);
+		assertThat(ingestion.run().articlesCreated()).isEqualTo(2);
+	}
+
+	// ---- Hacker News ----
+
+	private static String hnJson(long created) {
+		return "{\"hits\":["
+				+ "{\"objectID\":\"100\",\"title\":\"Rust 2.0 released\",\"url\":\"https://example.com/rust-2\",\"author\":\"pg\",\"points\":400,\"num_comments\":120,\"created_at_i\":" + created + "},"
+				+ "{\"objectID\":\"101\",\"title\":\"Ask HN: Best database?\",\"url\":null,\"points\":90,\"num_comments\":50,\"created_at_i\":" + created + ",\"story_text\":\"<p>Postgres?</p><script>x()</script>\"},"
+				+ "{\"objectID\":\"102\",\"title\":\"Unpopular\",\"url\":\"https://example.com/unpopular\",\"points\":3,\"created_at_i\":" + created + "}]}";
+	}
+
+	@Test
+	void hackerNewsStoriesAreStoredWithTheirPopularityAndTheAskHnBodyIsSanitized() {
+		server.on("/hn", FakeFeedServer.body(200, "application/json", hnJson(Instant.now().minusSeconds(600).getEpochSecond())));
 		UUID hn = source("HN", "Hacker News", "/hn", true);
 
 		IngestSummary summary = ingestion.run();
 
-		assertThat(summary.sourcesTotal()).isEqualTo(1);
-		assertThat(summary.sourcesSkipped()).isEqualTo(1);
-		assertThat(resultFor(summary, hn).status()).isEqualTo(Status.SKIPPED_UNSUPPORTED);
-		assertThat(server.requests()).isEmpty();
-		assertThat(health(hn).get("last_status")).isNull();
+		assertThat(resultFor(summary, hn).status()).isEqualTo(Status.OK);
+		assertThat(summary.articlesCreated()).isEqualTo(2); // the unpopular one is left out
+		assertThat(jdbc.queryForObject("select excerpt from articles where title = 'Rust 2.0 released'", String.class))
+				.contains("400 points").contains("120 comments");
+		assertThat(jdbc.queryForObject("select canonical_url from articles where title like 'Ask HN%'", String.class))
+				.isEqualTo("https://news.ycombinator.com/item?id=101");
+		String content = jdbc.queryForObject("select content_sanitized from articles where title like 'Ask HN%'", String.class);
+		assertThat(content).contains("Postgres?").doesNotContain("<script").doesNotContain("x()");
+		assertThat(health(hn).get("last_status")).isEqualTo("OK");
+		assertThat(ingestion.run().duplicates()).isEqualTo(2);
+	}
+
+	@Test
+	void aStoryThatHackerNewsAndABlogBothCarryIsStoredOnce() {
+		serve("/blog", feed(item("Rust 2.0 released", "https://example.com/rust-2", "The blog's own text", Instant.now().minusSeconds(900))));
+		server.on("/hn", FakeFeedServer.body(200, "application/json", hnJson(Instant.now().minusSeconds(600).getEpochSecond())));
+		rssSource("Blog", "/blog");
+		source("HN", "Hacker News", "/hn", true);
+
+		IngestSummary summary = ingestion.run();
+
+		assertThat(articleCount()).isEqualTo(2); // the shared story once, plus the Ask HN post
+		assertThat(summary.duplicates()).isEqualTo(1);
+	}
+
+	@Test
+	void aBrokenHackerNewsAnswerIsAFixedFailureAndNothingFromItIsStoredOrLogged(org.springframework.boot.test.system.CapturedOutput output) {
+		server.on("/hn", FakeFeedServer.body(200, "application/json", "{\"hits\": \"secret-body-text\"}"));
+		UUID hn = source("HN", "Hacker News", "/hn", true);
+
+		IngestSummary summary = ingestion.run();
+
+		assertThat(resultFor(summary, hn).status()).isEqualTo(Status.FAILED);
+		assertThat(health(hn).get("last_error")).isEqualTo("Invalid feed");
 		assertThat(articleCount()).isZero();
+		assertThat(output.getAll()).doesNotContain("secret-body-text");
 	}
 
 	@Test

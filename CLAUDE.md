@@ -3,7 +3,7 @@
 A platform that ingests tech news, engineering content and industry signals, then summarizes, tags and ranks them per user. It is a real project and also a learning project for Claude Code. Explain the "why" briefly when introducing a new tool or pattern.
 
 ## Status
-Planning documents are in `docs/` (drafts, in review) and the build follows `docs/ROADMAP.md`, one milestone at a time. M0 (skeleton), M1 (auth), M2 (sources), M3 (RSS ingestion), M4 (feed API), M5 (enrichment with a fake provider), M6 (Gemini and Groq providers) and M7 (personalization and ranking) are built; do not build ahead of the current milestone unless asked. Track decisions and learning in `PROGRESS.md`.
+Planning documents are in `docs/` (drafts, in review) and the build follows `docs/ROADMAP.md`, one milestone at a time. M0 (skeleton), M1 (auth), M2 (sources), M3 (RSS ingestion), M4 (feed API), M5 (enrichment with a fake provider), M6 (Gemini and Groq providers) and M7 (personalization and ranking) and M8 (Hacker News, GitHub releases, arXiv and Hugging Face sources) are built; do not build ahead of the current milestone unless asked. Track decisions and learning in `PROGRESS.md`.
 
 ## Stack (decided)
 - Backend: Java 21, Spring Boot 4.x, Spring Modulith (modular monolith), Maven

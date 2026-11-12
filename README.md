@@ -41,10 +41,19 @@ cd backend && ./mvnw test      # needs Docker (Testcontainers starts Postgres)
 
 ## Sources
 Admins manage content sources under `/api/v1/admin/sources` (list, create, update, delete). On a
-fresh database six public RSS feeds are added automatically; set `SEED_DEFAULT_SOURCES=false` to
-skip that. A source's type and URL cannot be changed (add a new source instead), and disabling is
-the normal way to stop one. URLs must be public http(s) addresses: credentials, `localhost`, private
-and link-local addresses and numeric IP tricks are rejected.
+fresh database a starter set is added automatically (six RSS feeds, Hacker News, Hugging Face daily papers,
+arXiv cs.AI and cs.SE, and the releases of Spring Boot and Ollama; edit `default-sources.json` to change
+them); set `SEED_DEFAULT_SOURCES=false` to skip that. A source's type and URL cannot be changed (add a new
+source instead), and disabling is the normal way to stop one.
+
+Source types and the one address each may use: `RSS` any public http(s) feed (credentials, `localhost`, private
+and link-local addresses and numeric IP tricks are rejected); `HN` exactly
+`https://hn.algolia.com/api/v1/search?tags=front_page&hitsPerPage=30`; `HUGGINGFACE` exactly
+`https://huggingface.co/api/daily_papers`; `GITHUB_RELEASES` `https://github.com/<owner>/<repo>/releases.atom`;
+`ARXIV` `https://rss.arxiv.org/rss/<category>` (or `/atom/`, for example `cs.AI`). Settings in `config`:
+`maxEntries` (1 to 100, most entries taken per fetch, for any type) and, for `HN`, `minPoints` (0 to 1000,
+default 50). Hacker News stories link to other sites that are not fetched, so they are enriched from the
+title alone.
 
 ```bash
 curl localhost:8080/api/v1/admin/sources -H "Authorization: Bearer <admin accessToken>"

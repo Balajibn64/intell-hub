@@ -1,6 +1,7 @@
 package com.intellhub.sources.internal;
 
 import com.intellhub.shared.ApiException;
+import com.intellhub.sources.SourceType;
 import java.util.Collection;
 import java.util.Map;
 import org.springframework.http.HttpStatus;
@@ -17,6 +18,11 @@ final class SourceConfigValidator {
 
 	static final int MAX_KEY_LENGTH = 64;
 
+	/** Most entries one fetch of one source may take (a busy feed cannot crowd out the rest). */
+	static final int MAX_ENTRIES_LIMIT = 100;
+
+	static final int MAX_MIN_POINTS = 1000;
+
 	private SourceConfigValidator() {
 	}
 
@@ -26,6 +32,39 @@ final class SourceConfigValidator {
 			return "Config is too large";
 		}
 		return depthProblem(config, 1);
+	}
+
+	/** The bounds every source shares, then the type's own settings. */
+	static void validate(SourceType type, Map<String, Object> config, int serializedBytes) {
+		String problem = problem(config, serializedBytes);
+		if (problem == null) {
+			problem = typeProblem(type, config);
+		}
+		if (problem != null) {
+			throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_SOURCE_CONFIG", problem);
+		}
+	}
+
+	/** Whole numbers only (not text, not booleans, not fractions), inside the bounds. */
+	static String typeProblem(SourceType type, Map<String, Object> config) {
+		String problem = integerProblem(config, "maxEntries", 1, MAX_ENTRIES_LIMIT);
+		if (problem == null && type == SourceType.HN) {
+			problem = integerProblem(config, "minPoints", 0, MAX_MIN_POINTS);
+		}
+		return problem;
+	}
+
+	private static String integerProblem(Map<String, Object> config, String key, int min, int max) {
+		Object value = config.get(key);
+		if (value == null && !config.containsKey(key)) {
+			return null;
+		}
+		// Not BigInteger: a number too big for a long has no place in these bounds, and longValue() would wrap it.
+		boolean whole = value instanceof Integer || value instanceof Long || value instanceof Short || value instanceof Byte;
+		if (!whole || ((Number) value).longValue() < min || ((Number) value).longValue() > max) {
+			return key + " must be a whole number from " + min + " to " + max;
+		}
+		return null;
 	}
 
 	static void validate(Map<String, Object> config, int serializedBytes) {
