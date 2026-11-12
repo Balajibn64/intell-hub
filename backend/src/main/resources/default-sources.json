@@ -1,0 +1,8 @@
+[
+  { "type": "RSS", "name": "Simon Willison's Weblog", "url": "https://simonwillison.net/atom/everything/" },
+  { "type": "RSS", "name": "Martin Fowler", "url": "https://martinfowler.com/feed.atom" },
+  { "type": "RSS", "name": "Netflix Tech Blog", "url": "https://netflixtechblog.com/feed" },
+  { "type": "RSS", "name": "GitHub Engineering", "url": "https://github.blog/engineering/feed/" },
+  { "type": "RSS", "name": "Hugging Face Blog", "url": "https://huggingface.co/blog/feed.xml" },
+  { "type": "RSS", "name": "The Pragmatic Engineer", "url": "https://blog.pragmaticengineer.com/rss/" }
+]
