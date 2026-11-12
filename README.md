@@ -38,3 +38,14 @@ login out everywhere.
 ```bash
 cd backend && ./mvnw test      # needs Docker (Testcontainers starts Postgres)
 ```
+
+## Sources
+Admins manage content sources under `/api/v1/admin/sources` (list, create, update, delete). On a
+fresh database six public RSS feeds are added automatically; set `SEED_DEFAULT_SOURCES=false` to
+skip that. A source's type and URL cannot be changed (add a new source instead), and disabling is
+the normal way to stop one. URLs must be public http(s) addresses: credentials, `localhost`, private
+and link-local addresses and numeric IP tricks are rejected.
+
+```bash
+curl localhost:8080/api/v1/admin/sources -H "Authorization: Bearer <admin accessToken>"
+```
