@@ -67,7 +67,7 @@ erDiagram
 | V5__reading_state.sql | saved_articles, article_events, and the search index over title, excerpt and summary (M4, done) |
 | V6__tags.sql | tags, article_tags, `claimed_at` and `enrichment_requested_at` on articles (M5, done) |
 | V7__enrichment_usage.sql | llm_usage (M5, done) |
-| V8__personalization.sql | user_tag_weights |
+| V8__personalization.sql | user_tag_weights (M7, done) |
 
 The curated tags are not a migration: a startup seeder creates them from `taxonomy.json`, so they can be reviewed and edited without one.
 
@@ -91,13 +91,13 @@ Base path `/api/v1`. JSON. Auth via `Authorization: Bearer <access JWT>`, except
 |---|---|---|
 | GET | /api/v1/me | Profile and role |
 | PUT | /api/v1/me/password | Change password |
-| GET | /api/v1/me/interests | Interest tags with weights |
-| PUT | /api/v1/me/interests | Replace the interest set |
+| GET | /api/v1/me/interests | The caller's chosen tags and the tags with a noticeable learned weight, strongest first, at most 100: `[{tag, explicit, learned}]` (learned is already faded) |
+| PUT | /api/v1/me/interests | Replace the chosen set: `{"interests":[{"tag":"llm","weight":1.0}]}`, at most 50, tag must be valid and exist (400 `UNKNOWN_TAG`), weight 0.1 to 1 (default 1). A dropped tag loses its chosen weight but keeps what was learned. 204 |
 
 ### Feed and articles (USER)
 | Method | Path | Notes |
 |---|---|---|
-| GET | /api/v1/feed | Newest first until ranking arrives in M7. Query: `page` (from 0), `size` (1-50, default 20), `q` (web-style full text over title, excerpt and summary, at most 200 characters), `source` (uuid), `category` (AI_ML, SOFTWARE_ENGINEERING, INDUSTRY_STARTUPS), `saved` (true shows only the caller's saved articles). `tag` (a tag name). Returns `{items, page, size, totalElements, totalPages}`; each item has id, sourceId, sourceName, url, title, author, publishedAt, excerpt, summary, category, status and `saved` (the caller's own). Bad parameters are 400 `VALIDATION_FAILED` |
+| GET | /api/v1/feed | Ranked for the caller by default (`sort=relevance`), or `sort=newest` for newest first (anything else is a 400); see the ranking formula below. Query: `page` (from 0), `size` (1-50, default 20), `q` (web-style full text over title, excerpt and summary, at most 200 characters), `source` (uuid), `category` (AI_ML, SOFTWARE_ENGINEERING, INDUSTRY_STARTUPS), `saved` (true shows only the caller's saved articles). `tag` (a tag name). Returns `{items, page, size, totalElements, totalPages}`; each item has id, sourceId, sourceName, url, title, author, publishedAt, excerpt, summary, category, status and `saved` (the caller's own). Bad parameters are 400 `VALIDATION_FAILED` |
 | GET | /api/v1/articles/{id} | The item fields plus `contentSanitized`, the only field that may be rendered as HTML (everything else is text). 404 `ARTICLE_NOT_FOUND`. Opening an article that the pre-filter skipped (`EXCERPT_ONLY`) queues it for enrichment, first in line and using the reserved budget; the response does not wait, and shows `status` `PENDING` |
 | POST | /api/v1/articles/{id}/click | Records a click event, 204. A repeat click on the same article within 10 seconds counts once |
 | PUT | /api/v1/articles/{id}/save | Save, idempotent, 204. Only ever changes the caller's own state |
@@ -126,7 +126,11 @@ Base path `/api/v1`. JSON. Auth via `Authorization: Bearer <access JWT>`, except
 - Method-level authorization (`@PreAuthorize`) on admin endpoints, with tests that a USER gets 403.
 
 ## 9. Open items
-1. Exact ranking formula and weight increments (defined when implementing `feed` and `personalization`, with unit tests).
+1. ~~Exact ranking formula and weight increments~~ Decided (M7), all constants in `RankingSql` and `Weights`:
+   - `score = 0.4 * relevance + 0.4 * affinity + 0.2 * recency`, each from 0 to 1.
+   - relevance is `relevance_score`, else half the cheap `heuristic_score`, else 0. affinity is `1 - exp(-s)` where `s` is the sum of the reader's weights over the article's tags. recency is `0.5 ^ (age / 72 hours)`.
+   - A tag's weight is the chosen weight plus the learned weight faded by half every 14 days. A click adds 0.05 to each of the article's tags, a save 0.15, an unsave takes 0.15 back; learned stays between 0 and 1.
+   - Computed at query time, with one "now" per request. Between page requests the order can shift slightly as time passes.
 2. Retention window length: 7 or 14 days (PRD says 1-2 weeks).
 3. ~~Offset or cursor pagination~~ Decided (M4): offset pages. New articles arriving mid-scroll can shift items by one; accepted at this scale.
 4. ~~Search scope~~ Decided (M4): title, excerpt and summary, not full content.

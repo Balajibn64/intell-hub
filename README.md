@@ -51,8 +51,13 @@ curl localhost:8080/api/v1/admin/sources -H "Authorization: Bearer <admin access
 ```
 
 ## Reading the feed
-All of these need a bearer token (any role). `GET /api/v1/feed` lists articles newest first
-(`page`, `size` up to 50, `q` for full-text search, `source`, `category`, `saved=true`), and
+All of these need a bearer token (any role). `GET /api/v1/feed` lists articles ranked for the signed-in
+reader (`sort=relevance`, the default) or newest first (`sort=newest`); also `page`, `size` up to 50, `q` for
+full-text search, `source`, `category`, `tag`, `saved=true`. Ranking combines the article's relevance, how well
+its tags match what you care about, and recency. You tell it what you care about with
+`PUT /api/v1/me/interests` (`{"interests":[{"tag":"llm","weight":1.0}]}`, at most 50, weight 0.1 to 1) and read it
+back with `GET /api/v1/me/interests`; your clicks and saves also teach it (a click adds a little, a save more;
+what is learned fades by half every two weeks). Everything personal is yours alone. And
 `GET /api/v1/articles/{id}` returns one article with its sanitized content. `PUT` and `DELETE`
 `/api/v1/articles/{id}/save` and `POST /api/v1/articles/{id}/click` change only the caller's own state.
 Show `contentSanitized` as HTML and everything else as text.
