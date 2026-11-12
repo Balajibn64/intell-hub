@@ -80,6 +80,22 @@ class AdminApiTests {
 	}
 
 	@Test
+	void everyRouteUnderAdminRequiresTheAdminRoleEvenWithoutAController() throws Exception {
+		String user = bearerFor("plain2@example.com", Role.USER);
+		String admin = bearerFor("boss2@example.com", Role.ADMIN);
+
+		// No controller handles this path: a plain user must still get 403, not 404.
+		mvc.perform(get("/api/v1/admin/does-not-exist").header(HttpHeaders.AUTHORIZATION, user))
+				.andExpect(status().isForbidden());
+		mvc.perform(post("/api/v1/admin/anything/at/all").header(HttpHeaders.AUTHORIZATION, user))
+				.andExpect(status().isForbidden());
+		mvc.perform(get("/api/v1/admin/does-not-exist")).andExpect(status().isUnauthorized());
+		// An admin gets past the check and reaches the normal "no such route" answer.
+		mvc.perform(get("/api/v1/admin/does-not-exist").header(HttpHeaders.AUTHORIZATION, admin))
+				.andExpect(status().isNotFound());
+	}
+
+	@Test
 	void aPlainUserGets403OnEveryAdminEndpointAndCreatesNothing() throws Exception {
 		String bearer = bearerFor("plain@example.com", Role.USER);
 

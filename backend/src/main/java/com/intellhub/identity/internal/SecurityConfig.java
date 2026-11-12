@@ -51,6 +51,8 @@ class SecurityConfig {
 								"/api/v1/auth/logout").permitAll()
 						// Reserved for the ingestion milestone, which adds its own shared-secret check.
 						.requestMatchers("/internal/**").denyAll()
+						// Every admin route needs ADMIN, so a new controller that forgets @PreAuthorize is still safe.
+						.requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
 						.anyRequest().authenticated())
 				.oauth2ResourceServer(oauth -> oauth
 						.jwt(jwt -> jwt.jwtAuthenticationConverter(jwtAuthenticationConverter()))
