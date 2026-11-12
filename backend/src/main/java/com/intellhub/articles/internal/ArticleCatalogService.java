@@ -9,6 +9,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -104,6 +105,39 @@ class ArticleCatalogService implements ArticleCatalog {
 				limit :limit""")
 				.param("limit", limit)
 				.query((rs, n) -> new TagView(rs.getString("name"), rs.getString("kind"), rs.getLong("articles")))
+				.list();
+	}
+
+	@Override
+	@Transactional(readOnly = true)
+	public Map<String, UUID> tagIds(Collection<String> names) {
+		if (names == null || names.isEmpty()) {
+			return Map.of();
+		}
+		Map<String, UUID> found = new HashMap<>();
+		jdbc.sql("select name, id from tags where name in (:names)").param("names", names)
+				.query((rs, n) -> Map.entry(rs.getString("name"), rs.getObject("id", UUID.class))).list()
+				.forEach(e -> found.put(e.getKey(), e.getValue()));
+		return found;
+	}
+
+	@Override
+	@Transactional(readOnly = true)
+	public Map<UUID, String> tagNames(Collection<UUID> ids) {
+		if (ids == null || ids.isEmpty()) {
+			return Map.of();
+		}
+		Map<UUID, String> found = new HashMap<>();
+		jdbc.sql("select id, name from tags where id in (:ids)").param("ids", ids)
+				.query((rs, n) -> Map.entry(rs.getObject("id", UUID.class), rs.getString("name"))).list()
+				.forEach(e -> found.put(e.getKey(), e.getValue()));
+		return found;
+	}
+
+	@Override
+	@Transactional(readOnly = true)
+	public List<UUID> tagIdsOf(UUID articleId) {
+		return jdbc.sql("select tag_id from article_tags where article_id = :id").param("id", articleId).query(UUID.class)
 				.list();
 	}
 

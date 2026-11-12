@@ -43,4 +43,13 @@ public interface ArticleCatalog {
 	 */
 	java.util.List<TagView> tags(int limit);
 
+	/** The ids of the tags that exist among the given names (unknown names are simply absent from the result). */
+	java.util.Map<String, UUID> tagIds(java.util.Collection<String> names);
+
+	/** The names of the given tags (unknown ids are absent from the result). */
+	java.util.Map<UUID, String> tagNames(java.util.Collection<UUID> ids);
+
+	/** The ids of the tags an article carries; empty if it has none or does not exist. */
+	java.util.List<UUID> tagIdsOf(UUID articleId);
+
 }
