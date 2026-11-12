@@ -71,6 +71,7 @@ class RetentionServiceTests {
 		jdbc.update("delete from sources");
 		jdbc.update("delete from users");
 		jdbc.update("delete from tags");
+		jdbc.update("delete from llm_usage");
 		counter = 0;
 		source = UUID.randomUUID();
 		jdbc.update("insert into sources (id, type, name, url, created_at) values (?, 'RSS', 'S', ?, now())", source, "https://example.com/" + source);
