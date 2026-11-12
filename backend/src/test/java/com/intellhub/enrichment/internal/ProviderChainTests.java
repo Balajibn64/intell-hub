@@ -161,4 +161,36 @@ class ProviderChainTests {
 				e -> assertThat(e.getMessage()).contains("IllegalStateException").doesNotContain("SECRET"));
 	}
 
+	@Test
+	void aLongerWaitAskedByAnEarlierProviderIsNotLostWhenTheFallbackFailsDifferently() {
+		SummarizerProvider limited = new SummarizerProvider() {
+			@Override
+			public String name() {
+				return "limited";
+			}
+
+			@Override
+			public List<SummaryResult> summarize(List<SummaryItem> batch) throws ProviderException {
+				throw new ProviderException(Kind.RATE_LIMITED, "slow down", Duration.ofMinutes(10));
+			}
+		};
+		SummarizerProvider down = new SummarizerProvider() {
+			@Override
+			public String name() {
+				return "down";
+			}
+
+			@Override
+			public List<SummaryResult> summarize(List<SummaryItem> batch) throws ProviderException {
+				throw new ProviderException(Kind.UNAVAILABLE, "down");
+			}
+		};
+		ProviderChain chain = new ProviderChain(List.of(limited, down), budget);
+
+		assertThatThrownBy(() -> chain.summarize(BATCH, BudgetPriority.NORMAL)).isInstanceOfSatisfying(ProviderException.class, e -> {
+			assertThat(e.getKind()).isEqualTo(Kind.UNAVAILABLE); // still the last provider's error
+			assertThat(e.getRetryAfter()).isEqualTo(Duration.ofMinutes(10)); // but with the longest wait asked
+		});
+	}
+
 }

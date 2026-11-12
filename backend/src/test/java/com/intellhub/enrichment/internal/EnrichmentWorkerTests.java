@@ -635,6 +635,43 @@ class EnrichmentWorkerTests {
 	}
 
 	@Test
+	void anUnusableAnswerCountsAsAnAttemptSoABatchThatBreaksTheProviderEndsFailedInsteadOfLooping() {
+		UUID id = relevant("poison");
+		Scripted provider = new Scripted((batch, n) -> {
+			throw new ProviderException(Kind.BAD_RESPONSE, "refused");
+		});
+		EnrichmentWorker worker = worker(props(250, 50, 5, 3), provider);
+
+		for (int run = 1; run <= 3; run++) {
+			worker.tick();
+			clock.advance(Duration.ofMinutes(16));
+			assertThat(attempts(id)).isEqualTo(run);
+		}
+
+		assertThat(status(id)).isEqualTo("FAILED");
+		int calls = provider.calls.get();
+		worker.tick();
+		assertThat(provider.calls.get()).isEqualTo(calls); // nothing left to claim, so no more calls are spent
+	}
+
+	@Test
+	void aRevokedKeyIsTheProvidersProblemNotTheArticlesSoAttemptsAreKept() {
+		UUID id = relevant("revoked");
+		Scripted provider = new Scripted((batch, n) -> {
+			throw new ProviderException(Kind.UNAVAILABLE, "The provider rejected our credentials");
+		});
+		EnrichmentWorker worker = worker(props(250, 50, 5, 3), provider);
+
+		for (int run = 0; run < 5; run++) {
+			worker.tick();
+			clock.advance(Duration.ofMinutes(16));
+		}
+
+		assertThat(status(id)).isEqualTo("PENDING");
+		assertThat(attempts(id)).isZero();
+	}
+
+	@Test
 	void aProviderBugOrASpentBudgetAlsoLeavesAttemptsUntouched() {
 		UUID id = relevant("budget");
 		FakeSummarizer fake = new FakeSummarizer(taxonomy);
