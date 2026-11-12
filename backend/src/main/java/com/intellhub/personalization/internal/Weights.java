@@ -34,6 +34,11 @@ final class Weights {
 				+ "updated_at)), 0) / (" + HALF_LIFE_DAYS + " * 86400.0)))";
 	}
 
+	/** The per-user lock key shared by every writer of that user's weights. */
+	static String lockKey(java.util.UUID userId) {
+		return "user-tag-weights:" + userId;
+	}
+
 	private Weights() {
 	}
 

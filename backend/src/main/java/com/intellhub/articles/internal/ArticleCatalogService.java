@@ -38,6 +38,11 @@ class ArticleCatalogService implements ArticleCatalog {
 		this.clock = clock;
 	}
 
+	private OffsetDateTime rankingNow() {
+		OffsetDateTime now = OffsetDateTime.now(clock);
+		return now.truncatedTo(java.time.temporal.ChronoUnit.MINUTES).minusMinutes(now.getMinute() % 5);
+	}
+
 	/** At most 100 weights, with valid names and sensible numbers; zero weights add nothing and are dropped. */
 	private static List<Map.Entry<String, Double>> checkedWeights(Ranking ranking) {
 		if (ranking.tagWeights().size() > Ranking.MAX_TAGS) {
@@ -108,11 +113,12 @@ class ArticleCatalogService implements ArticleCatalog {
 		}
 		else {
 			List<Map.Entry<String, Double>> weights = checkedWeights(f.ranking());
-			// One "now" for the whole request, so the order inside a page request is consistent.
+			// "Now" is rounded down to five minutes, so consecutive page requests rank by the same time and a reader
+			// paging through does not see articles swap places from one page to the next.
 			items = RankingSql.bindWeights(bind(jdbc.sql("select " + ArticleSql.COLUMNS + " from articles"
 					+ RankingSql.affinityJoin(weights.size()) + where + " order by " + RankingSql.SCORE
 					+ " desc, published_at desc, id desc limit :limit offset :offset"), query, f), weights)
-					.param("now", OffsetDateTime.now(clock)).param("limit", size).param("offset", (long) page * size)
+					.param("now", rankingNow()).param("limit", size).param("offset", (long) page * size)
 					.query(LIST_ROWS).list();
 		}
 		return new ArticlePage(withTags(items), page, size, total);

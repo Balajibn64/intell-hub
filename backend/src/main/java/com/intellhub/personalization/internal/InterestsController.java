@@ -67,9 +67,14 @@ class InterestsController {
 			throw new ApiException(HttpStatus.BAD_REQUEST, "UNKNOWN_TAG", "Unknown tags: " + String.join(", ", e.tags()));
 		}
 		catch (DataIntegrityViolationException e) {
-			if (String.valueOf(e.getMostSpecificCause().getMessage()).contains("user_tag_weights_user_id_fkey")) {
+			String message = String.valueOf(e.getMostSpecificCause().getMessage());
+			if (message.contains("user_tag_weights_user_id_fkey")) {
 				// The account was deleted while its token was still valid.
 				throw new ApiException(HttpStatus.UNAUTHORIZED, "UNAUTHENTICATED", "Authentication required");
+			}
+			if (message.contains("user_tag_weights_tag_id_fkey")) {
+				// A tag vanished between the check and the write.
+				throw new ApiException(HttpStatus.BAD_REQUEST, "UNKNOWN_TAG", "Unknown tags");
 			}
 			throw e;
 		}

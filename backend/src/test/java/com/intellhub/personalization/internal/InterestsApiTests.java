@@ -230,6 +230,62 @@ class InterestsApiTests {
 		assertThat(jdbc.queryForObject("select count(*) from user_tag_weights", Integer.class)).isEqualTo(1);
 	}
 
+	@Test
+	void replacingInterestsWhileClickingAndSavingNeverDeadlocks() throws Exception {
+		UUID article1 = articleWithTags("rust", "llm", "sqlite", "kubernetes");
+		UUID article2 = articleWithTags("kubernetes", "sqlite", "llm", "rust");
+		var pool = java.util.concurrent.Executors.newFixedThreadPool(4);
+		java.util.List<java.util.concurrent.Future<?>> futures = new java.util.ArrayList<>();
+		String forward = "{\"interests\":[{\"tag\":\"rust\"},{\"tag\":\"llm\"},{\"tag\":\"sqlite\"},{\"tag\":\"kubernetes\"}]}";
+		String backward = "{\"interests\":[{\"tag\":\"kubernetes\"},{\"tag\":\"sqlite\"},{\"tag\":\"llm\"},{\"tag\":\"rust\"}]}";
+		for (int worker = 0; worker < 4; worker++) {
+			final int w = worker;
+			futures.add(pool.submit(() -> {
+				for (int i = 0; i < 25; i++) {
+					if (w % 2 == 0) {
+						mvc.perform(put(URL).with(as(alice)).contentType(MediaType.APPLICATION_JSON).content(i % 2 == 0 ? forward : backward))
+								.andExpect(status().isNoContent());
+					}
+					else {
+						mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+								.put("/api/v1/articles/" + (i % 2 == 0 ? article1 : article2) + "/save").with(as(alice))).andExpect(status().isNoContent());
+						mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+								.delete("/api/v1/articles/" + (i % 2 == 0 ? article1 : article2) + "/save").with(as(alice))).andExpect(status().isNoContent());
+					}
+				}
+				return null;
+			}));
+		}
+		for (var f : futures) {
+			f.get(60, java.util.concurrent.TimeUnit.SECONDS); // an exception (a deadlock) surfaces here
+		}
+		pool.shutdown();
+		assertThat(interests.rankingWeights(alice)).containsOnlyKeys("rust", "llm", "sqlite", "kubernetes");
+	}
+
+	private UUID articleWithTags(String... names) {
+		UUID source = UUID.randomUUID();
+		jdbc.update("insert into sources (id, type, name, url, created_at) values (?, 'RSS', 'S', ?, now())", source, "https://example.com/" + source);
+		UUID id = UUID.randomUUID();
+		jdbc.update("""
+				insert into articles (id, source_id, canonical_url, content_hash, title, published_at, ingested_at)
+				values (?, ?, ?, ?, 't', now(), now())""", id, source, "https://example.com/a/" + id,
+				String.format("%064x", Math.abs(id.getLeastSignificantBits())));
+		for (String name : names) {
+			jdbc.update("insert into article_tags (article_id, tag_id, origin) values (?, ?, 'LLM')", id, tag(name));
+		}
+		return id;
+	}
+
+	@Test
+	void whatTheListShowsIsWhatRanksTheFeed() throws Exception {
+		jdbc.update("insert into user_tag_weights values (?, ?, 0, 0.03, now())", alice, tag("rust")); // below the threshold
+		jdbc.update("insert into user_tag_weights values (?, ?, 0, 0.3, now())", alice, tag("llm"));
+
+		assertThat(interests.rankingWeights(alice)).containsOnlyKeys("llm");
+		mvc.perform(get(URL).with(as(alice))).andExpect(jsonPath("$.length()").value(1)).andExpect(jsonPath("$[0].tag").value("llm"));
+	}
+
 	private UUID tag(String name) {
 		return jdbc.queryForObject("select id from tags where name = ?", UUID.class, name);
 	}

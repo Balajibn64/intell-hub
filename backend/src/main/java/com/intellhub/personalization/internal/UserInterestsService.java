@@ -57,8 +57,9 @@ class UserInterestsService implements UserInterests {
 			throw new UnknownTagException(unknown);
 		}
 
-		// One replacement at a time per user, so two requests cannot interleave their delete and insert steps.
-		jdbc.sql("select pg_advisory_xact_lock(hashtextextended(:key, 0))").param("key", "interests:" + userId)
+		// Everything that writes one user's weights (this, and the learning from clicks and saves) takes this same
+		// lock first, so two of them can never wait on each other's rows in opposite orders.
+		jdbc.sql("select pg_advisory_xact_lock(hashtextextended(:key, 0))").param("key", Weights.lockKey(userId))
 				.query().singleRow();
 		if (ids.isEmpty()) {
 			jdbc.sql("update user_tag_weights set explicit_weight = 0 where user_id = :user and explicit_weight > 0")
@@ -71,7 +72,8 @@ class UserInterestsService implements UserInterests {
 					.param("user", userId).param("ids", ids.values()).update();
 		}
 		// updated_at is when the learned part last changed, so choosing a tag must not restart its fading.
-		for (Map.Entry<String, Double> entry : chosen.entrySet()) {
+		for (Map.Entry<String, Double> entry : chosen.entrySet().stream()
+				.sorted(Comparator.comparing(e -> ids.get(e.getKey()))).toList()) {
 			jdbc.sql("""
 					insert into user_tag_weights (user_id, tag_id, explicit_weight, learned_weight, updated_at)
 					values (:user, :tag, :weight, 0, :now)
@@ -86,9 +88,7 @@ class UserInterestsService implements UserInterests {
 	@Override
 	@Transactional(readOnly = true)
 	public List<InterestView> interests(UUID userId) {
-		List<Row> rows = rows(userId).stream()
-				.filter(r -> r.explicit() > 0 || r.learned() >= Weights.LISTING_THRESHOLD)
-				.sorted(Comparator.comparingDouble((Row r) -> r.explicit() + r.learned()).reversed()).limit(MAX_LISTED).toList();
+		List<Row> rows = strongest(userId);
 		Map<UUID, String> names = articles.tagNames(rows.stream().map(Row::tagId).toList());
 		List<InterestView> views = new ArrayList<>();
 		for (Row row : rows) {
@@ -103,8 +103,7 @@ class UserInterestsService implements UserInterests {
 	@Override
 	@Transactional(readOnly = true)
 	public Map<String, Double> rankingWeights(UUID userId) {
-		List<Row> rows = rows(userId).stream().filter(r -> r.explicit() + r.learned() > 0.001)
-				.sorted(Comparator.comparingDouble((Row r) -> r.explicit() + r.learned()).reversed()).limit(MAX_LISTED).toList();
+		List<Row> rows = strongest(userId);
 		Map<UUID, String> names = articles.tagNames(rows.stream().map(Row::tagId).toList());
 		Map<String, Double> weights = new LinkedHashMap<>();
 		for (Row row : rows) {
@@ -114,6 +113,16 @@ class UserInterestsService implements UserInterests {
 			}
 		}
 		return weights;
+	}
+
+	/**
+	 * The one definition of which tags count: the ones the user chose and the ones with a noticeable learned weight,
+	 * strongest first. The list a user reads and the weights that rank their feed come from the same rows, so
+	 * nothing influences the feed that the user cannot see.
+	 */
+	private List<Row> strongest(UUID userId) {
+		return rows(userId).stream().filter(r -> r.explicit() > 0 || r.learned() >= Weights.LISTING_THRESHOLD)
+				.sorted(Comparator.comparingDouble((Row r) -> r.explicit() + r.learned()).reversed()).limit(MAX_LISTED).toList();
 	}
 
 	private List<Row> rows(UUID userId) {

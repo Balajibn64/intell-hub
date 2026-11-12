@@ -117,11 +117,18 @@ class ReadingStateService implements ReadingState {
 	/**
 	 * Nudges the user's learned weight for every tag of the article, in the same transaction as the event, so a
 	 * recorded event and its effect never come apart. Each tag is one atomic statement: the stored weight is
-	 * faded to now, the step is added, and the result is kept between 0 and 1. Tags are handled in id order so
-	 * two requests of the same user never wait on each other in opposite orders.
+	 * faded to now, the step is added, and the result is kept between 0 and 1. One user's weight changes are
+	 * serialized by a per-user lock, so they can never deadlock; other users are unaffected.
 	 */
 	private void learn(UUID userId, UUID articleId, double step) {
 		List<UUID> tagIds = articles.tagIdsOf(articleId).stream().sorted().toList();
+		if (tagIds.isEmpty()) {
+			return;
+		}
+		// The same per-user lock the interests replacement takes: a click that inserts a new row and a replacement
+		// that holds the old ones would otherwise wait on each other.
+		jdbc.sql("select pg_advisory_xact_lock(hashtextextended(:key, 0))").param("key", Weights.lockKey(userId)).query()
+				.singleRow();
 		for (UUID tagId : tagIds) {
 			if (step > 0) {
 				jdbc.sql("""
