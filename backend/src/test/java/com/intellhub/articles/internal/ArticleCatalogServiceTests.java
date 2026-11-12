@@ -53,6 +53,7 @@ class ArticleCatalogServiceTests {
 	@BeforeEach
 	void setUp() {
 		jdbc.update("delete from sources");
+		jdbc.update("delete from tags");
 		source = source("A");
 		otherSource = source("B");
 		counter = 0;
@@ -320,6 +321,87 @@ class ArticleCatalogServiceTests {
 		assertThat(catalog.existsById(id)).isTrue();
 		assertThat(catalog.existsById(UUID.randomUUID())).isFalse();
 		assertThat(catalog.find(UUID.randomUUID())).isEmpty();
+	}
+
+	// ---- tags ----
+
+	private void tag(UUID article, String name, String kind) {
+		jdbc.update("insert into tags (id, name, kind, created_at) values (gen_random_uuid(), ?, ?, now()) on conflict (name) do nothing",
+				name, kind);
+		jdbc.update("insert into article_tags (article_id, tag_id, origin) select ?, id, 'LLM' from tags where name = ? on conflict do nothing",
+				article, name);
+	}
+
+	@Test
+	void tagsAreInListAndDetailViewsAlphabeticallyAndAreEmptyNotNullWhenThereAreNone() {
+		UUID tagged = article("tagged", BASE.plusSeconds(2));
+		UUID plain = article("plain", BASE.plusSeconds(1));
+		tag(tagged, "zeta", "FREE");
+		tag(tagged, "alpha", "TAXONOMY");
+		tag(tagged, "mid", "FREE");
+
+		ArticlePage page = catalog.search(null, 0, 10);
+
+		assertThat(page.items().get(0).tags()).containsExactly("alpha", "mid", "zeta");
+		assertThat(page.items().get(1).tags()).isEmpty();
+		assertThat(catalog.find(tagged).orElseThrow().tags()).containsExactly("alpha", "mid", "zeta");
+		assertThat(catalog.find(plain).orElseThrow().tags()).isNotNull().isEmpty();
+	}
+
+	@Test
+	void theTagFilterKeepsOnlyArticlesWithThatTagAndCombinesWithOtherFilters() {
+		UUID a = article(source, "a one", "", null, null, BASE.plusSeconds(1));
+		UUID b = article(otherSource, "b two", "", null, null, BASE.plusSeconds(2));
+		article(source, "c three", "", null, null, BASE.plusSeconds(3));
+		tag(a, "x", "FREE");
+		tag(a, "y", "FREE");
+		tag(b, "y", "FREE");
+
+		assertThat(ids(catalog.search(new ArticleFilter(null, null, null, "y", null), 0, 10))).containsExactly(b, a);
+		assertThat(ids(catalog.search(new ArticleFilter(null, null, null, "x", null), 0, 10))).containsExactly(a);
+		assertThat(ids(catalog.search(new ArticleFilter(null, null, null, "nope", null), 0, 10))).isEmpty();
+		assertThat(ids(catalog.search(new ArticleFilter(null, source, null, "y", null), 0, 10))).containsExactly(a);
+		assertThat(ids(catalog.search(new ArticleFilter("two", null, null, "y", null), 0, 10))).containsExactly(b);
+		assertThat(catalog.search(new ArticleFilter(null, null, null, "y", null), 0, 10).totalElements()).isEqualTo(2);
+	}
+
+	@Test
+	void aMalformedTagFilterIsRejectedBeforeItReachesTheDatabase() {
+		for (String bad : new String[] { "UPPER", "has space", "'; drop table tags; --", "a".repeat(31), "", "<script>", "../x" }) {
+			assertThatThrownBy(() -> catalog.search(new ArticleFilter(null, null, null, bad, null), 0, 10)).as(bad)
+					.isInstanceOf(IllegalArgumentException.class);
+		}
+	}
+
+	@Test
+	void theTagListPutsCuratedTagsFirstEvenWithNoArticlesThenTheMostUsedFreeTags() {
+		UUID a = article("a", BASE.plusSeconds(1));
+		UUID b = article("b", BASE.plusSeconds(2));
+		UUID c = article("c", BASE.plusSeconds(3));
+		jdbc.update("insert into tags (id, name, kind, created_at) values (gen_random_uuid(), 'curated-unused', 'TAXONOMY', now())");
+		tag(a, "curated-used", "TAXONOMY");
+		tag(a, "popular", "FREE");
+		tag(b, "popular", "FREE");
+		tag(c, "popular", "FREE");
+		tag(a, "rare", "FREE");
+		tag(b, "another", "FREE");
+		tag(c, "another", "FREE");
+
+		List<com.intellhub.articles.TagView> tags = catalog.tags(100);
+
+		assertThat(tags).extracting(com.intellhub.articles.TagView::name)
+				.containsExactly("curated-used", "curated-unused", "popular", "another", "rare");
+		assertThat(tags.get(0).articleCount()).isEqualTo(1);
+		assertThat(tags.get(1).articleCount()).isZero();
+		assertThat(tags.get(2)).isEqualTo(new com.intellhub.articles.TagView("popular", "FREE", 3));
+		assertThat(catalog.tags(3)).hasSize(3);
+	}
+
+	@Test
+	void theTagListLimitIsEnforced() {
+		assertThatThrownBy(() -> catalog.tags(0)).isInstanceOf(IllegalArgumentException.class);
+		assertThatThrownBy(() -> catalog.tags(ArticleCatalog.MAX_TAG_LIST + 1)).isInstanceOf(IllegalArgumentException.class);
+		assertThat(catalog.tags(ArticleCatalog.MAX_TAG_LIST)).isEmpty();
 	}
 
 }

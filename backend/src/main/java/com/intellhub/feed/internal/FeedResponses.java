@@ -17,24 +17,28 @@ final class FeedResponses {
 	}
 
 	record FeedItem(UUID id, UUID sourceId, String sourceName, String url, String title, String author,
-			Instant publishedAt, String excerpt, String summary, String category, String status, boolean saved) {
+			Instant publishedAt, String excerpt, String summary, String category, String status, List<String> tags,
+			boolean saved) {
 
 		static FeedItem of(ArticleView a, String sourceName, boolean saved) {
 			return new FeedItem(a.id(), a.sourceId(), sourceName, a.canonicalUrl(), a.title(), a.author(),
-					a.publishedAt(), a.excerpt(), a.summary(), a.category(), a.status(), saved);
+					a.publishedAt(), a.excerpt(), a.summary(), a.category(), a.status(), a.tags(), saved);
 		}
 
 	}
 
 	record ArticleDetail(UUID id, UUID sourceId, String sourceName, String url, String title, String author,
-			Instant publishedAt, String excerpt, String summary, String category, String status, boolean saved,
-			String contentSanitized) {
+			Instant publishedAt, String excerpt, String summary, String category, String status, List<String> tags,
+			boolean saved, String contentSanitized) {
 
 		static ArticleDetail of(ArticleView a, String sourceName, boolean saved) {
 			return new ArticleDetail(a.id(), a.sourceId(), sourceName, a.canonicalUrl(), a.title(), a.author(),
-					a.publishedAt(), a.excerpt(), a.summary(), a.category(), a.status(), saved, a.contentSanitized());
+					a.publishedAt(), a.excerpt(), a.summary(), a.category(), a.status(), a.tags(), saved, a.contentSanitized());
 		}
 
+	}
+
+	record TagItem(String name, String kind, long articleCount) {
 	}
 
 	record FeedPage(List<FeedItem> items, int page, int size, long totalElements, int totalPages) {

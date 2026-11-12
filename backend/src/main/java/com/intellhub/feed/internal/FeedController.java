@@ -1,12 +1,14 @@
 package com.intellhub.feed.internal;
 
 import com.intellhub.articles.ArticleCatalog;
+import com.intellhub.articles.ArticleEnrichment;
 import com.intellhub.articles.ArticleFilter;
 import com.intellhub.articles.ArticlePage;
 import com.intellhub.articles.ArticleView;
 import com.intellhub.feed.internal.FeedResponses.ArticleDetail;
 import com.intellhub.feed.internal.FeedResponses.FeedItem;
 import com.intellhub.feed.internal.FeedResponses.FeedPage;
+import com.intellhub.feed.internal.FeedResponses.TagItem;
 import com.intellhub.identity.CurrentUser;
 import com.intellhub.personalization.ReadingState;
 import com.intellhub.shared.ApiException;
@@ -34,29 +36,34 @@ class FeedController {
 
 	private static final int DEFAULT_PAGE_SIZE = 20;
 
+	private static final java.util.regex.Pattern TAG_FORMAT = java.util.regex.Pattern.compile("^[a-z0-9][a-z0-9+#.-]{0,29}$");
+
 	private final ArticleCatalog articles;
 
 	private final ReadingState readingState;
 
 	private final SourceCatalog sources;
 
-	FeedController(ArticleCatalog articles, ReadingState readingState, SourceCatalog sources) {
+	private final ArticleEnrichment enrichment;
+
+	FeedController(ArticleCatalog articles, ReadingState readingState, SourceCatalog sources, ArticleEnrichment enrichment) {
 		this.articles = articles;
 		this.readingState = readingState;
 		this.sources = sources;
+		this.enrichment = enrichment;
 	}
 
 	@GetMapping("/feed")
 	FeedPage feed(CurrentUser user, @RequestParam(defaultValue = "0") int page,
 			@RequestParam(defaultValue = "" + DEFAULT_PAGE_SIZE) int size, @RequestParam(required = false) String q,
 			@RequestParam(required = false) UUID source, @RequestParam(required = false) String category,
-			@RequestParam(defaultValue = "false") boolean saved) {
-		validate(page, size, q, category);
+			@RequestParam(required = false) String tag, @RequestParam(defaultValue = "false") boolean saved) {
+		validate(page, size, q, category, tag);
 
 		Set<UUID> onlyIds = saved ? new HashSet<>(readingState.savedArticleIds(user.id())) : null;
 		ArticlePage result;
 		try {
-			result = articles.search(new ArticleFilter(q, source, category, onlyIds), page, size);
+			result = articles.search(new ArticleFilter(q, source, category, tag, onlyIds), page, size);
 		}
 		catch (IllegalArgumentException e) {
 			// The catalog is the authority on limits; if it is stricter than the checks above, still answer 400.
@@ -71,16 +78,31 @@ class FeedController {
 		return new FeedPage(items, result.page(), result.size(), result.totalElements(), result.totalPages());
 	}
 
+	/** The curated tags first, then the most used free tags. */
+	@GetMapping("/tags")
+	List<TagItem> tags(CurrentUser user, @RequestParam(defaultValue = "100") int limit) {
+		if (limit < 1 || limit > ArticleCatalog.MAX_TAG_LIST) {
+			throw invalid("limit must be between 1 and " + ArticleCatalog.MAX_TAG_LIST);
+		}
+		return articles.tags(limit).stream().map(t -> new TagItem(t.name(), t.kind(), t.articleCount())).toList();
+	}
+
 	@GetMapping("/articles/{id}")
 	ArticleDetail article(CurrentUser user, @PathVariable UUID id) {
-		ArticleView article = articles.find(id)
+		ArticleView found = articles.find(id)
 				.orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "ARTICLE_NOT_FOUND", "Article not found"));
+		ArticleView article = found;
+		if ("EXCERPT_ONLY".equals(found.status()) && enrichment.requestEnrichment(id)) {
+			// A reader opened an article the cheap pre-filter skipped: queue it for enrichment, first in line. It does
+			// not wait for the result (the worker fills it in later); the response shows the state as it is now.
+			article = articles.find(id).orElse(found);
+		}
 		String sourceName = sources.names(Set.of(article.sourceId())).get(article.sourceId());
 		boolean saved = readingState.savedAmong(user.id(), Set.of(id)).contains(id);
 		return ArticleDetail.of(article, sourceName, saved);
 	}
 
-	private static void validate(int page, int size, String q, String category) {
+	private static void validate(int page, int size, String q, String category, String tag) {
 		if (page < 0 || page > ArticleCatalog.MAX_PAGE) {
 			throw invalid("page must be between 0 and " + ArticleCatalog.MAX_PAGE);
 		}
@@ -89,6 +111,9 @@ class FeedController {
 		}
 		if (q != null && q.length() > ArticleCatalog.MAX_QUERY_LENGTH) {
 			throw invalid("q must be at most " + ArticleCatalog.MAX_QUERY_LENGTH + " characters");
+		}
+		if (tag != null && !TAG_FORMAT.matcher(tag).matches()) {
+			throw invalid("tag is not a valid tag name");
 		}
 		if (category != null && !ArticleCatalog.CATEGORIES.contains(category)) {
 			throw invalid("category must be one of " + new java.util.TreeSet<>(ArticleCatalog.CATEGORIES));

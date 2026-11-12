@@ -57,6 +57,7 @@ class FeedApiTests {
 	void setUp() {
 		jdbc.update("delete from sources");
 		jdbc.update("delete from users");
+		jdbc.update("delete from tags");
 		alice = user("alice");
 		bob = user("bob");
 		sourceA = source("Source A");
@@ -275,6 +276,115 @@ class FeedApiTests {
 
 		mvc.perform(get("/api/v1/feed").param("userId", alice.toString()).header("X-User-Id", alice.toString()).with(as(bob)))
 				.andExpect(jsonPath("$.items[0].saved").value(false));
+	}
+
+	// ---- tags ----
+
+	private void tag(UUID article, String name, String kind) {
+		jdbc.update("insert into tags (id, name, kind, created_at) values (gen_random_uuid(), ?, ?, now()) on conflict (name) do nothing",
+				name, kind);
+		jdbc.update("insert into article_tags (article_id, tag_id, origin) select ?, id, 'LLM' from tags where name = ? on conflict do nothing",
+				article, name);
+	}
+
+	private void setStatus(UUID id, String status) {
+		jdbc.update("update articles set status = ? where id = ?", status, id);
+	}
+
+	@Test
+	void itemsAndDetailShowTheirTags() throws Exception {
+		UUID id = article(sourceA, "tagged", "", null, 1);
+		article(sourceA, "untagged", "", null, 0);
+		tag(id, "rust", "TAXONOMY");
+		tag(id, "borrowing", "FREE");
+
+		mvc.perform(get("/api/v1/feed").with(as(alice)))
+				.andExpect(jsonPath("$.items[0].tags[0]").value("borrowing"))
+				.andExpect(jsonPath("$.items[0].tags[1]").value("rust"))
+				.andExpect(jsonPath("$.items[1].tags.length()").value(0));
+		mvc.perform(get("/api/v1/articles/" + id).with(as(alice))).andExpect(jsonPath("$.tags.length()").value(2));
+	}
+
+	@Test
+	void theTagFilterWorksAndABadTagIsAValidationError() throws Exception {
+		UUID a = article(sourceA, "one", "", null, 1);
+		article(sourceA, "two", "", null, 2);
+		tag(a, "rust", "TAXONOMY");
+
+		mvc.perform(get("/api/v1/feed").param("tag", "rust").with(as(alice)))
+				.andExpect(jsonPath("$.totalElements").value(1)).andExpect(jsonPath("$.items[0].id").value(a.toString()));
+		mvc.perform(get("/api/v1/feed").param("tag", "unknown").with(as(alice))).andExpect(jsonPath("$.totalElements").value(0));
+		for (String bad : new String[] { "UPPER", "has space", "'; drop table tags; --", "a".repeat(31) }) {
+			mvc.perform(get("/api/v1/feed").param("tag", bad).with(as(alice))).andExpect(status().isBadRequest())
+					.andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+		}
+	}
+
+	@Test
+	void theTagsEndpointListsCuratedTagsFirstThenThePopularOnesAndNeedsALogin() throws Exception {
+		UUID a = article(sourceA, "one", "", null, 1);
+		UUID b = article(sourceA, "two", "", null, 2);
+		jdbc.update("insert into tags (id, name, kind, created_at) values (gen_random_uuid(), 'java', 'TAXONOMY', now())");
+		tag(a, "popular", "FREE");
+		tag(b, "popular", "FREE");
+		tag(a, "rare", "FREE");
+
+		mvc.perform(get("/api/v1/tags").with(as(alice)))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.length()").value(3))
+				.andExpect(jsonPath("$[0].name").value("java"))
+				.andExpect(jsonPath("$[0].kind").value("TAXONOMY"))
+				.andExpect(jsonPath("$[0].articleCount").value(0))
+				.andExpect(jsonPath("$[1].name").value("popular"))
+				.andExpect(jsonPath("$[1].articleCount").value(2));
+		mvc.perform(get("/api/v1/tags").param("limit", "2").with(as(alice))).andExpect(jsonPath("$.length()").value(2));
+		for (String bad : new String[] { "0", "-1", "201", "abc" }) {
+			mvc.perform(get("/api/v1/tags").param("limit", bad).with(as(alice))).andExpect(status().isBadRequest())
+					.andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+		}
+		mvc.perform(get("/api/v1/tags")).andExpect(status().isUnauthorized());
+	}
+
+	// ---- open to enrich ----
+
+	@Test
+	void openingASkippedArticleQueuesItOnceAndReturnsAtOnceWithoutWaiting() throws Exception {
+		UUID id = article(sourceA, "skipped", "", null, 1);
+		setStatus(id, "EXCERPT_ONLY");
+
+		mvc.perform(get("/api/v1/articles/" + id).with(as(alice)))
+				.andExpect(status().isOk()).andExpect(jsonPath("$.status").value("PENDING"));
+
+		assertThat(jdbc.queryForObject("select status from articles where id = ?", String.class, id)).isEqualTo("PENDING");
+		Timestamp requested = jdbc.queryForObject("select enrichment_requested_at from articles where id = ?", Timestamp.class, id);
+		assertThat(requested).isNotNull();
+
+		mvc.perform(get("/api/v1/articles/" + id).with(as(bob))).andExpect(jsonPath("$.status").value("PENDING"));
+		assertThat(jdbc.queryForObject("select enrichment_requested_at from articles where id = ?", Timestamp.class, id))
+				.isEqualTo(requested);
+	}
+
+	@Test
+	void openingAnArticleInAnyOtherStateChangesNothing() throws Exception {
+		for (String state : new String[] { "PENDING", "ENRICHING", "ENRICHED", "FAILED" }) {
+			UUID id = article(sourceA, state, "", null, 1);
+			setStatus(id, state);
+
+			mvc.perform(get("/api/v1/articles/" + id).with(as(alice))).andExpect(jsonPath("$.status").value(state));
+
+			assertThat(jdbc.queryForObject("select status from articles where id = ?", String.class, id)).as(state).isEqualTo(state);
+			assertThat(jdbc.queryForObject("select enrichment_requested_at from articles where id = ?", Timestamp.class, id)).as(state).isNull();
+		}
+	}
+
+	@Test
+	void theListNeverQueuesAnything() throws Exception {
+		UUID id = article(sourceA, "skipped", "", null, 1);
+		setStatus(id, "EXCERPT_ONLY");
+
+		mvc.perform(get("/api/v1/feed").with(as(alice))).andExpect(jsonPath("$.items[0].status").value("EXCERPT_ONLY"));
+
+		assertThat(jdbc.queryForObject("select status from articles where id = ?", String.class, id)).isEqualTo("EXCERPT_ONLY");
 	}
 
 }
