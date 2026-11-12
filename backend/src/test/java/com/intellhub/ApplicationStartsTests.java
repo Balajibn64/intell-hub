@@ -14,7 +14,7 @@ import org.springframework.test.context.TestConstructor;
 import org.springframework.test.web.servlet.MockMvc;
 
 @Import(TestcontainersConfiguration.class)
-@SpringBootTest(properties = "spring.datasource.password=unused-testcontainers-overrides")
+@SpringBootTest
 @AutoConfigureMockMvc
 @TestConstructor(autowireMode = TestConstructor.AutowireMode.ALL)
 class ApplicationStartsTests {
@@ -44,7 +44,7 @@ class ApplicationStartsTests {
 
 	@Test
 	void everythingElseIsDenied() throws Exception {
-		mockMvc.perform(get("/api/v1/anything")).andExpect(status().isForbidden());
+		mockMvc.perform(get("/api/v1/anything")).andExpect(status().isUnauthorized());
 	}
 
 }
