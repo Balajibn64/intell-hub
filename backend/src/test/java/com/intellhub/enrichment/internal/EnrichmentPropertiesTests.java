@@ -33,11 +33,29 @@ class EnrichmentPropertiesTests {
 
 	@Test
 	void anUnknownProviderIsRefusedAtStartup() {
-		assertThat(validator.validate(with("gemini", 250, 50, 5, 0.15))).isNotEmpty();
+		assertThat(validator.validate(with("openai", 250, 50, 5, 0.15))).isNotEmpty();
 		assertThat(validator.validate(with("FAKE", 250, 50, 5, 0.15))).isNotEmpty();
 		// A stray space must fail loudly at startup, not enable the scheduler while no provider exists.
 		assertThat(validator.validate(with("fake ", 250, 50, 5, 0.15))).isNotEmpty();
 		assertThat(validator.validate(with(" fake", 250, 50, 5, 0.15))).isNotEmpty();
+	}
+
+	@Test
+	void realProvidersAreAnOrderedList() {
+		assertThat(validator.validate(with("gemini", 250, 50, 5, 0.15))).isEmpty();
+		assertThat(validator.validate(with("groq", 250, 50, 5, 0.15))).isEmpty();
+		assertThat(validator.validate(with("gemini,groq", 250, 50, 5, 0.15))).isEmpty();
+		assertThat(with("gemini,groq", 250, 50, 5, 0.15).providers()).containsExactly("gemini", "groq");
+		assertThat(with("groq,gemini", 250, 50, 5, 0.15).providers()).containsExactly("groq", "gemini");
+		assertThat(with(null, 250, 50, 5, 0.15).providers()).isEmpty();
+	}
+
+	@Test
+	void badListsAreRefusedAtStartup() {
+		for (String bad : new String[] { "gemini,gemini", "gemini, groq", "gemini,", ",gemini", "gemini,,groq", "gemini,openai",
+				"fake,gemini", "gemini,fake", "fake,fake", "Gemini" }) {
+			assertThat(validator.validate(with(bad, 250, 50, 5, 0.15))).as(bad).isNotEmpty();
+		}
 	}
 
 	@Test

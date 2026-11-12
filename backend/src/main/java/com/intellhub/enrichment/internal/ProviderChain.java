@@ -4,7 +4,9 @@ import com.intellhub.enrichment.ProviderException;
 import com.intellhub.enrichment.SummarizerProvider;
 import com.intellhub.enrichment.SummaryItem;
 import com.intellhub.enrichment.SummaryResult;
+import java.util.Comparator;
 import java.util.List;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 /**
@@ -25,9 +27,26 @@ class ProviderChain {
 
 	private final CallBudget budget;
 
+	/** The providers in the order they are configured: the first is tried first, the rest are fallbacks. */
+	@Autowired
+	ProviderChain(List<SummarizerProvider> providers, CallBudget budget, EnrichmentProperties properties) {
+		this(inConfiguredOrder(providers, properties.providers()), budget);
+	}
+
 	ProviderChain(List<SummarizerProvider> providers, CallBudget budget) {
 		this.providers = List.copyOf(providers);
 		this.budget = budget;
+	}
+
+	private static List<SummarizerProvider> inConfiguredOrder(List<SummarizerProvider> providers, List<String> order) {
+		return providers.stream().sorted(Comparator.comparingInt(p -> {
+			int position = order.indexOf(p.name());
+			return position < 0 ? Integer.MAX_VALUE : position;
+		})).toList();
+	}
+
+	List<String> providerNames() {
+		return providers.stream().map(SummarizerProvider::name).toList();
 	}
 
 	boolean hasProviders() {
