@@ -91,6 +91,35 @@ class AdminSourceApiTests {
 	}
 
 	@Test
+	void eachTypeCanOnlyBeCreatedForItsOwnAddressAndWithValidSettings() throws Exception {
+		String[][] good = { { "HN", "https://hn.algolia.com/api/v1/search?tags=front_page" },
+				{ "HUGGINGFACE", "https://huggingface.co/api/daily_papers" },
+				{ "GITHUB_RELEASES", "https://github.com/ollama/ollama/releases.atom" }, { "ARXIV", "https://rss.arxiv.org/rss/cs.AI" } };
+		for (String[] g : good) {
+			mvc.perform(post("/api/v1/admin/sources").with(ADMIN).contentType(MediaType.APPLICATION_JSON)
+					.content("{\"type\":\"" + g[0] + "\",\"name\":\"S\",\"url\":\"" + g[1] + "\",\"config\":{\"maxEntries\":20}}"))
+					.andExpect(status().isCreated());
+			// The same type pointed at an address of the administrator's choosing is refused.
+			mvc.perform(post("/api/v1/admin/sources").with(ADMIN).contentType(MediaType.APPLICATION_JSON)
+					.content("{\"type\":\"" + g[0] + "\",\"name\":\"S\",\"url\":\"https://evil.example/feed\"}"))
+					.andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_SOURCE_URL"));
+		}
+		assertThat(repository.count()).isEqualTo(4);
+
+		String hn = mvc.perform(get("/api/v1/admin/sources").with(ADMIN)).andReturn().getResponse().getContentAsString();
+		java.util.List<String> hnIds = JsonPath.read(hn, "$[?(@.type=='HN')].id");
+		String hnId = hnIds.get(0);
+		mvc.perform(patch("/api/v1/admin/sources/" + hnId).with(ADMIN).contentType(MediaType.APPLICATION_JSON)
+				.content("{\"config\":{\"minPoints\":-3}}")).andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.code").value("INVALID_SOURCE_CONFIG"));
+		mvc.perform(patch("/api/v1/admin/sources/" + hnId).with(ADMIN).contentType(MediaType.APPLICATION_JSON)
+				.content("{\"config\":{\"minPoints\":120,\"maxEntries\":30}}")).andExpect(status().isOk());
+		mvc.perform(post("/api/v1/admin/sources").with(ADMIN).contentType(MediaType.APPLICATION_JSON)
+				.content(createJson("\"RSS\"", "\"E\"", "\"https://example.com/feed2\"").replace("}", ",\"config\":{\"maxEntries\":0}}")))
+				.andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_SOURCE_CONFIG"));
+	}
+
+	@Test
 	void adminCanCreateAndListWithHealthFields() throws Exception {
 		mvc.perform(post("/api/v1/admin/sources").with(ADMIN).contentType(MediaType.APPLICATION_JSON)
 				.content("{\"type\":\"RSS\",\"name\":\" Example \",\"url\":\"https://Example.com/feed\",\"config\":{\"k\":\"v\"}}"))
