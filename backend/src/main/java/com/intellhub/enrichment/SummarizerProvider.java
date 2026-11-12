@@ -13,6 +13,14 @@ public interface SummarizerProvider {
 	String name();
 
 	/**
+	 * Where this provider's tags come from, stored with each tag link: {@code LLM} for a language model (the
+	 * default) or {@code HEURISTIC} for rule-based providers such as the fake one.
+	 */
+	default String tagOrigin() {
+		return "LLM";
+	}
+
+	/**
 	 * Processes one batch. May return fewer results than items, or malformed ones: the caller validates
 	 * everything.
 	 */

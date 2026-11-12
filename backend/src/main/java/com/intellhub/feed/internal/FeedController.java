@@ -1,7 +1,7 @@
 package com.intellhub.feed.internal;
 
 import com.intellhub.articles.ArticleCatalog;
-import com.intellhub.articles.ArticleEnrichment;
+import com.intellhub.articles.EnrichmentRequests;
 import com.intellhub.articles.ArticleFilter;
 import com.intellhub.articles.ArticlePage;
 import com.intellhub.articles.ArticleView;
@@ -36,17 +36,15 @@ class FeedController {
 
 	private static final int DEFAULT_PAGE_SIZE = 20;
 
-	private static final java.util.regex.Pattern TAG_FORMAT = java.util.regex.Pattern.compile("^[a-z0-9][a-z0-9+#.-]{0,29}$");
-
 	private final ArticleCatalog articles;
 
 	private final ReadingState readingState;
 
 	private final SourceCatalog sources;
 
-	private final ArticleEnrichment enrichment;
+	private final EnrichmentRequests enrichment;
 
-	FeedController(ArticleCatalog articles, ReadingState readingState, SourceCatalog sources, ArticleEnrichment enrichment) {
+	FeedController(ArticleCatalog articles, ReadingState readingState, SourceCatalog sources, EnrichmentRequests enrichment) {
 		this.articles = articles;
 		this.readingState = readingState;
 		this.sources = sources;
@@ -112,7 +110,7 @@ class FeedController {
 		if (q != null && q.length() > ArticleCatalog.MAX_QUERY_LENGTH) {
 			throw invalid("q must be at most " + ArticleCatalog.MAX_QUERY_LENGTH + " characters");
 		}
-		if (tag != null && !TAG_FORMAT.matcher(tag).matches()) {
+		if (tag != null && !ArticleCatalog.TAG_NAME.matcher(tag).matches()) {
 			throw invalid("tag is not a valid tag name");
 		}
 		if (category != null && !ArticleCatalog.CATEGORIES.contains(category)) {

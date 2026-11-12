@@ -53,9 +53,10 @@ record EnrichmentProperties(
 		return reservedCalls <= dailyBudget;
 	}
 
-	@AssertTrue(message = "provider must be unset or one of: fake")
+	/** Exact match on purpose: a stray space would otherwise enable the scheduler but no provider, silently. */
+	@AssertTrue(message = "provider must be unset or exactly one of: fake")
 	boolean isProviderKnown() {
-		return !enabled() || "fake".equals(provider.strip());
+		return !enabled() || "fake".equals(provider);
 	}
 
 }

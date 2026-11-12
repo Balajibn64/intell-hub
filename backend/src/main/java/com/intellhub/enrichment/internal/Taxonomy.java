@@ -1,5 +1,6 @@
 package com.intellhub.enrichment.internal;
 
+import com.intellhub.articles.ArticleCatalog;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
@@ -30,8 +31,6 @@ class Taxonomy {
 	record Matches(Map<String, Integer> hitsByTag, int distinctKeywordsInTitle, int distinctKeywordsInText) {
 	}
 
-	private static final Pattern VALID_NAME = Pattern.compile("^[a-z0-9][a-z0-9+#.-]{0,29}$");
-
 	private final List<TagDefinition> tags;
 
 	private final Map<TagDefinition, List<Pattern>> patterns = new LinkedHashMap<>();
@@ -45,7 +44,7 @@ class Taxonomy {
 		this.tags = List.copyOf(tags);
 		Set<String> seen = new LinkedHashSet<>();
 		for (TagDefinition tag : this.tags) {
-			if (!VALID_NAME.matcher(tag.name()).matches() || !seen.add(tag.name())) {
+			if (!ArticleCatalog.TAG_NAME.matcher(tag.name()).matches() || !seen.add(tag.name())) {
 				throw new IllegalStateException("Invalid or duplicate taxonomy tag");
 			}
 			List<Pattern> compiled = new ArrayList<>();

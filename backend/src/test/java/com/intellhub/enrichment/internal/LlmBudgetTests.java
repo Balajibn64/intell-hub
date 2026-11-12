@@ -76,8 +76,8 @@ class LlmBudgetTests {
 		assertThat(grants(b, BudgetPriority.NORMAL, 20, "fake")).isEqualTo(7);
 
 		assertThat(b.usedToday()).isEqualTo(7);
-		assertThat(b.remainingToday(BudgetPriority.NORMAL)).isZero();
-		assertThat(b.remainingToday(BudgetPriority.RESERVED)).isEqualTo(3);
+		assertThat(b.remaining(BudgetPriority.NORMAL)).isZero();
+		assertThat(b.remaining(BudgetPriority.RESERVED)).isEqualTo(3);
 	}
 
 	@Test
@@ -91,7 +91,7 @@ class LlmBudgetTests {
 		assertThat(b.usedToday()).isEqualTo(10);
 		assertThat(b.tryReserve(BudgetPriority.RESERVED, "fake")).isFalse();
 		assertThat(b.tryReserve(BudgetPriority.NORMAL, "fake")).isFalse();
-		assertThat(b.remainingToday(BudgetPriority.RESERVED)).isZero();
+		assertThat(b.remaining(BudgetPriority.RESERVED)).isZero();
 	}
 
 	@Test

@@ -32,6 +32,12 @@ class FakeSummarizer implements SummarizerProvider {
 		return "fake";
 	}
 
+	/** Its tags are keyword matches, not a model's choice. */
+	@Override
+	public String tagOrigin() {
+		return "HEURISTIC";
+	}
+
 	@Override
 	public List<SummaryResult> summarize(List<SummaryItem> batch) {
 		List<SummaryResult> results = new ArrayList<>();

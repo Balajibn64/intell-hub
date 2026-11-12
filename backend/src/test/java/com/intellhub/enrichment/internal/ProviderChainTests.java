@@ -35,6 +35,11 @@ class ProviderChainTests {
 		}
 
 		@Override
+		public int remaining(BudgetPriority priority) {
+			return budgetOpen ? 1 : 0;
+		}
+
+		@Override
 		public void recordFailure(String provider) {
 			failures.add(provider);
 		}

@@ -25,10 +25,11 @@ public interface ArticleEnrichment {
 	void recordTriage(UUID articleId, double heuristicScore, boolean worthEnriching);
 
 	/**
-	 * Claims up to {@code size} PENDING, scored articles for enrichment, requested ones first and then by score.
-	 * One atomic statement: two workers always get different articles.
+	 * Claims up to {@code size} PENDING, scored articles of the given kind: readers' requests oldest first, or
+	 * background work by score. One atomic statement: two workers always get different articles. Each claim
+	 * counts as an attempt.
 	 */
-	List<EnrichmentInput> claimBatch(int size);
+	List<EnrichmentInput> claimBatch(int size, ClaimKind kind);
 
 	/**
 	 * Stores results for articles that are still ENRICHING and marks them ENRICHED. Results for articles in any
@@ -36,8 +37,15 @@ public interface ArticleEnrichment {
 	 */
 	void applyResults(List<AppliedEnrichment> results, int maxFreeTags);
 
-	/** Makes the given ENRICHING articles PENDING again. */
+	/** Makes the given ENRICHING articles PENDING again. The attempt stays counted: the provider got it wrong. */
 	void release(Collection<UUID> articleIds);
+
+	/**
+	 * Makes the given ENRICHING articles PENDING again and gives the attempt back, for when the article was not
+	 * at fault: the provider was down, the budget ran out or something broke. Otherwise an outage would use up
+	 * the retries of every article it touched.
+	 */
+	void releaseWithoutAttempt(Collection<UUID> articleIds);
 
 	/** Marks the given ENRICHING articles FAILED. */
 	void fail(Collection<UUID> articleIds);
@@ -48,9 +56,6 @@ public interface ArticleEnrichment {
 	 * their attempts reset.
 	 */
 	Recovered recoverStale(Duration stale, Duration failedRetryAfter);
-
-	/** A reader opened an article that was skipped: make it PENDING and first in line. False if it was in any other state. */
-	boolean requestEnrichment(UUID articleId);
 
 	/** Creates the curated tags (or promotes existing free tags of the same name). Names must match the tag format. */
 	void upsertTaxonomyTags(Collection<String> names);

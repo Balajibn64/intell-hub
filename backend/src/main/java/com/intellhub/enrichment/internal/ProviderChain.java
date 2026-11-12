@@ -18,7 +18,7 @@ import org.springframework.stereotype.Component;
 class ProviderChain {
 
 	/** The results together with the name of the provider that produced them. */
-	record Answer(String provider, List<SummaryResult> results) {
+	record Answer(String provider, String tagOrigin, List<SummaryResult> results) {
 	}
 
 	private final List<SummarizerProvider> providers;
@@ -45,7 +45,7 @@ class ProviderChain {
 				throw new BudgetExhaustedException();
 			}
 			try {
-				return new Answer(provider.name(), provider.summarize(batch));
+				return new Answer(provider.name(), provider.tagOrigin(), provider.summarize(batch));
 			}
 			catch (ProviderException e) {
 				budget.recordFailure(provider.name());

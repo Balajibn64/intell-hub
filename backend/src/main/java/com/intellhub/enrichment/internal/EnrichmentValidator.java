@@ -1,5 +1,6 @@
 package com.intellhub.enrichment.internal;
 
+import com.intellhub.articles.ArticleCatalog;
 import com.intellhub.enrichment.SummaryItem;
 import com.intellhub.enrichment.SummaryResult;
 import java.util.ArrayList;
@@ -29,8 +30,6 @@ class EnrichmentValidator {
 	static final int MAX_TAGS = 5;
 
 	static final Set<String> CATEGORIES = Set.of("AI_ML", "SOFTWARE_ENGINEERING", "INDUSTRY_STARTUPS");
-
-	private static final Pattern TAG = Pattern.compile("^[a-z0-9][a-z0-9+#.-]{0,29}$");
 
 	private static final Pattern INVISIBLE = Pattern
 			.compile("[\\u200B-\\u200F\\u202A-\\u202E\\u2060-\\u2064\\u2066-\\u2069\\uFEFF]");
@@ -117,7 +116,7 @@ class EnrichmentValidator {
 				continue;
 			}
 			String normalized = tag.strip().toLowerCase(Locale.ROOT);
-			if (TAG.matcher(normalized).matches() && seen.add(normalized)) {
+			if (ArticleCatalog.TAG_NAME.matcher(normalized).matches() && seen.add(normalized)) {
 				tags.add(normalized);
 			}
 		}

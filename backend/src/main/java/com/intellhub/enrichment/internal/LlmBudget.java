@@ -74,8 +74,8 @@ class LlmBudget implements CallBudget {
 		return usedOn(today());
 	}
 
-	/** Calls still available today for the given priority. */
-	int remainingToday(BudgetPriority priority) {
+	@Override
+	public int remaining(BudgetPriority priority) {
 		int cap = priority == BudgetPriority.RESERVED ? properties.dailyBudget()
 				: properties.dailyBudget() - properties.reservedCalls();
 		return Math.max(0, cap - usedToday());

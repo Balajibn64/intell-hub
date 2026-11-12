@@ -80,6 +80,8 @@ class EnrichmentWorkerTests {
 
 	private final ArticleEnrichment articles;
 
+	private final com.intellhub.articles.EnrichmentRequests requests;
+
 	private final Taxonomy taxonomy;
 
 	private final JdbcClient jdbcClient;
@@ -94,9 +96,10 @@ class EnrichmentWorkerTests {
 
 	private int counter;
 
-	EnrichmentWorkerTests(ArticleEnrichment articles, Taxonomy taxonomy, JdbcClient jdbcClient, JdbcTemplate jdbc,
-			TransactionTemplate transaction) {
+	EnrichmentWorkerTests(ArticleEnrichment articles, com.intellhub.articles.EnrichmentRequests requests, Taxonomy taxonomy,
+			JdbcClient jdbcClient, JdbcTemplate jdbc, TransactionTemplate transaction) {
 		this.articles = articles;
+		this.requests = requests;
 		this.taxonomy = taxonomy;
 		this.jdbcClient = jdbcClient;
 		this.jdbc = jdbc;
@@ -130,7 +133,31 @@ class EnrichmentWorkerTests {
 	private EnrichmentWorker worker(EnrichmentProperties props, SummarizerProvider... providers) {
 		LlmBudget budget = new LlmBudget(jdbcClient, clock, props, transaction);
 		ProviderChain chain = new ProviderChain(List.of(providers), budget);
-		return new EnrichmentWorker(articles, new Triage(articles, taxonomy, props), chain, new EnrichmentValidator(), props, clock);
+		return new EnrichmentWorker(articles, new Triage(articles, taxonomy, props), chain, new EnrichmentValidator(), props, budget, clock);
+	}
+
+	/** A budget that records which part of the budget each call was charged to, then defers to the real one. */
+	private EnrichmentWorker workerRecording(EnrichmentProperties props, List<BudgetPriority> charged, SummarizerProvider provider) {
+		LlmBudget real = new LlmBudget(jdbcClient, clock, props, transaction);
+		CallBudget recording = new CallBudget() {
+			@Override
+			public boolean tryReserve(BudgetPriority priority, String name) {
+				charged.add(priority);
+				return real.tryReserve(priority, name);
+			}
+
+			@Override
+			public int remaining(BudgetPriority priority) {
+				return real.remaining(priority);
+			}
+
+			@Override
+			public void recordFailure(String name) {
+				real.recordFailure(name);
+			}
+		};
+		ProviderChain chain = new ProviderChain(List.of(provider), recording);
+		return new EnrichmentWorker(articles, new Triage(articles, taxonomy, props), chain, new EnrichmentValidator(), props, recording, clock);
 	}
 
 	private UUID relevant(String marker) {
@@ -287,9 +314,9 @@ class EnrichmentWorkerTests {
 		UUID skipped1 = article("Ten pasta recipes", "dinner", "EXCERPT_ONLY", 0.0);
 		UUID skipped2 = article("More pasta recipes", "lunch", "EXCERPT_ONLY", 0.0);
 		UUID skipped3 = article("Even more pasta", "snacks", "EXCERPT_ONLY", 0.0);
-		articles.requestEnrichment(skipped1);
-		articles.requestEnrichment(skipped2);
-		articles.requestEnrichment(skipped3);
+		requests.requestEnrichment(skipped1);
+		requests.requestEnrichment(skipped2);
+		requests.requestEnrichment(skipped3);
 
 		worker.tick();
 
@@ -576,6 +603,148 @@ class EnrichmentWorkerTests {
 		worker(props(250, 50, 5, 3), provider).tick();
 
 		assertThat(output.getAll()).contains("Enrichment run").doesNotContain(marker).doesNotContain(marker.toLowerCase());
+	}
+
+	// ---- an outage is not the article's fault ----
+
+	@Test
+	void aLongProviderOutageDoesNotUseUpAnArticlesRetries() {
+		UUID id = relevant("patient");
+		FakeSummarizer fake = new FakeSummarizer(taxonomy);
+		Scripted provider = new Scripted((batch, n) -> {
+			throw new ProviderException(Kind.UNAVAILABLE, "down");
+		});
+		EnrichmentWorker worker = worker(props(250, 50, 5, 3), provider);
+
+		for (int outage = 0; outage < 6; outage++) {
+			assertThat(worker.tick().ran()).isTrue();
+			clock.advance(Duration.ofMinutes(16)); // past any backoff
+		}
+		assertThat(status(id)).isEqualTo("PENDING");
+		assertThat(attempts(id)).isZero();
+
+		// The provider comes back but gets this one article wrong once: that is a first attempt, not the last.
+		provider.behavior = (batch, n) -> List.of(new SummaryResult(0, "fine", null, List.of(), Double.NaN));
+		worker.tick();
+		assertThat(status(id)).isEqualTo("PENDING");
+		assertThat(attempts(id)).isEqualTo(1);
+
+		provider.behavior = (batch, n) -> fake.summarize(batch);
+		assertThat(worker.tick().enriched()).isEqualTo(1);
+		assertThat(status(id)).isEqualTo("ENRICHED");
+	}
+
+	@Test
+	void aProviderBugOrASpentBudgetAlsoLeavesAttemptsUntouched() {
+		UUID id = relevant("budget");
+		FakeSummarizer fake = new FakeSummarizer(taxonomy);
+		Scripted provider = new Scripted((batch, n) -> fake.summarize(batch));
+		EnrichmentWorker worker = worker(props(1, 0, 1, 3), provider);
+		jdbc.update("insert into llm_usage (day, provider, calls, failures) values (?, 'other', 1, 0)", java.time.LocalDate.ofInstant(NOON, ZoneId.of("UTC")));
+
+		worker.tick();
+
+		assertThat(status(id)).isEqualTo("PENDING");
+		assertThat(attempts(id)).isZero();
+		assertThat(provider.calls.get()).isZero();
+	}
+
+	@Test
+	void whenTheBudgetIsSpentNothingIsClaimedOrWrittenOnLaterRuns() {
+		for (int i = 0; i < 4; i++) {
+			relevant("n" + i);
+		}
+		Scripted provider = fakeBehaviour();
+		EnrichmentWorker worker = worker(props(1, 0, 2, 3), provider);
+		worker.tick(); // uses the single call, enriches 2
+
+		for (int run = 0; run < 5; run++) {
+			TickResult result = worker.tick();
+			assertThat(result.stoppedBecause()).contains("budget");
+			assertThat(result.batches()).isZero();
+		}
+
+		// A claim would have set claimed_at and counted an attempt; the budget check comes first, so neither happened.
+		assertThat(jdbc.queryForObject("select count(*) from articles where status = 'PENDING' and claimed_at is not null", Integer.class)).isZero();
+		assertThat(jdbc.queryForObject("select coalesce(max(enrichment_attempts), 0) from articles where status = 'PENDING'", Integer.class)).isZero();
+		assertThat(provider.calls.get()).isEqualTo(1);
+	}
+
+	// ---- readers' requests and background work are kept apart ----
+
+	@Test
+	void backgroundArticlesNeverSpendTheReserveEvenWhenTheyShareARunWithARequest() {
+		for (int i = 0; i < 6; i++) {
+			relevant("bg" + i);
+		}
+		UUID requested = article("Ten pasta recipes", "dinner", "EXCERPT_ONLY", 0.0);
+		requests.requestEnrichment(requested);
+		Scripted provider = fakeBehaviour();
+		EnrichmentWorker worker = worker(props(4, 2, 5, 3), provider);
+
+		TickResult first = worker.tick();
+
+		// One call for the request (reserve), one call for five background articles (normal cap is 2 of 4),
+		// and then the normal budget is used up, so the sixth background article waits.
+		assertThat(status(requested)).isEqualTo("ENRICHED");
+		assertThat(first.enriched()).isEqualTo(6);
+		assertThat(count("PENDING")).isEqualTo(1);
+		assertThat(providerCalls()).isEqualTo(2);
+		assertThat(provider.seen.get(0)).hasSize(1); // the request went alone, as its own batch
+
+		// Because background work could not take the reserve, it is still there for readers.
+		UUID another = article("More pasta recipes", "lunch", "EXCERPT_ONLY", 0.0);
+		requests.requestEnrichment(another);
+		worker.tick();
+		assertThat(status(another)).isEqualTo("ENRICHED");
+		assertThat(providerCalls()).isEqualTo(3);
+		assertThat(count("PENDING")).isEqualTo(1);
+	}
+
+	@Test
+	void requestsAreServedEvenWhenTheNormalBudgetIsGone() {
+		relevant("bg");
+		Scripted provider = fakeBehaviour();
+		EnrichmentWorker worker = worker(props(3, 2, 5, 3), provider);
+		worker.tick(); // the one normal call enriches the background article
+		UUID requested = article("Ten pasta recipes", "dinner", "EXCERPT_ONLY", 0.0);
+		requests.requestEnrichment(requested);
+
+		worker.tick();
+
+		assertThat(status(requested)).isEqualTo("ENRICHED");
+		assertThat(providerCalls()).isEqualTo(2);
+	}
+
+	// ---- where tags come from ----
+
+	@Test
+	void tagsFromTheKeywordProviderAreLabelledHeuristicAndModelTagsAreLabelledLlm() {
+		UUID fromFake = relevant("fake");
+		worker(props(250, 50, 5, 3), new FakeSummarizer(taxonomy)).tick();
+		assertThat(jdbc.queryForList("select distinct origin from article_tags where article_id = ?", String.class, fromFake))
+				.containsExactly("HEURISTIC");
+
+		UUID fromModel = relevant("model");
+		Scripted model = new Scripted((batch, n) -> List.of(new SummaryResult(0, "ok", null, List.of("kubernetes"), 0.5)));
+		worker(props(250, 50, 5, 3), model).tick();
+		assertThat(jdbc.queryForList("select distinct origin from article_tags where article_id = ?", String.class, fromModel))
+				.containsExactly("LLM");
+	}
+
+	@Test
+	void eachBatchIsChargedToThePartOfTheBudgetItIsAllowedToUse() {
+		relevant("bg1");
+		relevant("bg2");
+		UUID requested = article("Ten pasta recipes", "dinner", "EXCERPT_ONLY", 0.0);
+		requests.requestEnrichment(requested);
+		List<BudgetPriority> charged = new ArrayList<>();
+
+		workerRecording(props(10, 3, 1, 3), charged, fakeBehaviour()).tick();
+
+		// The reader's request is charged to the reserve; the background articles are not allowed to be.
+		assertThat(charged).containsExactly(BudgetPriority.RESERVED, BudgetPriority.NORMAL, BudgetPriority.NORMAL);
+		assertThat(count("ENRICHED")).isEqualTo(3);
 	}
 
 }

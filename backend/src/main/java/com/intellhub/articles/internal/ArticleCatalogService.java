@@ -26,8 +26,6 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 class ArticleCatalogService implements ArticleCatalog {
 
-	private static final java.util.regex.Pattern TAG_FORMAT = java.util.regex.Pattern.compile("^[a-z0-9][a-z0-9+#.-]{0,29}$");
-
 	private final JdbcClient jdbc;
 
 	ArticleCatalogService(JdbcClient jdbc) {
@@ -51,7 +49,7 @@ class ArticleCatalogService implements ArticleCatalog {
 		if (f.category() != null && !CATEGORIES.contains(f.category())) {
 			throw new IllegalArgumentException("unknown category");
 		}
-		if (f.tag() != null && !TAG_FORMAT.matcher(f.tag()).matches()) {
+		if (f.tag() != null && !TAG_NAME.matcher(f.tag()).matches()) {
 			throw new IllegalArgumentException("invalid tag");
 		}
 		if (f.onlyIds() != null && f.onlyIds().isEmpty()) {
@@ -101,6 +99,7 @@ class ArticleCatalogService implements ArticleCatalog {
 				select t.name, t.kind, count(at.article_id) as articles
 				from tags t left join article_tags at on at.tag_id = t.id
 				group by t.id, t.name, t.kind
+				having t.kind = 'TAXONOMY' or count(at.article_id) > 0
 				order by (t.kind = 'TAXONOMY') desc, count(at.article_id) desc, t.name
 				limit :limit""")
 				.param("limit", limit)

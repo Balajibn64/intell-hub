@@ -2,6 +2,8 @@ package com.intellhub.articles.internal;
 
 import com.intellhub.articles.AppliedEnrichment;
 import com.intellhub.articles.ArticleEnrichment;
+import com.intellhub.articles.ClaimKind;
+import com.intellhub.articles.EnrichmentRequests;
 import com.intellhub.articles.EnrichmentInput;
 import com.intellhub.articles.TriageCandidate;
 import java.time.Clock;
@@ -17,7 +19,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 /** Plain SQL, so each transition is one statement that names the state it expects. */
 @Service
-class ArticleEnrichmentService implements ArticleEnrichment {
+class ArticleEnrichmentService implements ArticleEnrichment, EnrichmentRequests {
 
 	private final JdbcClient jdbc;
 
@@ -53,16 +55,20 @@ class ArticleEnrichmentService implements ArticleEnrichment {
 
 	@Override
 	@Transactional
-	public List<EnrichmentInput> claimBatch(int size) {
+	public List<EnrichmentInput> claimBatch(int size, ClaimKind kind) {
 		if (size < 1) {
 			return List.of();
 		}
-		return jdbc.sql("""
+		// Both variants are fixed text; only the kind (an enum) chooses between them.
+		String filter = kind == ClaimKind.REQUESTED ? "and enrichment_requested_at is not null"
+				: "and enrichment_requested_at is null";
+		String order = kind == ClaimKind.REQUESTED ? "enrichment_requested_at, id"
+				: "heuristic_score desc, published_at desc, id";
+		String sql = """
 				with picked as (
 				    select id from articles
-				    where status = 'PENDING' and heuristic_score is not null
-				    order by (enrichment_requested_at is null), enrichment_requested_at,
-				             heuristic_score desc, published_at desc, id
+				    where status = 'PENDING' and heuristic_score is not null %s
+				    order by %s
 				    limit :size
 				    for update skip locked)
 				update articles a
@@ -70,7 +76,8 @@ class ArticleEnrichmentService implements ArticleEnrichment {
 				from picked
 				where a.id = picked.id
 				returning a.id, a.title, a.excerpt, (a.enrichment_requested_at is not null) as requested,
-				          a.enrichment_attempts""")
+				          a.enrichment_attempts""".formatted(filter, order);
+		return jdbc.sql(sql)
 				.param("size", size).param("now", now())
 				.query((rs, n) -> new EnrichmentInput(rs.getObject("id", UUID.class), rs.getString("title"),
 						rs.getString("excerpt"), rs.getBoolean("requested"), rs.getInt("enrichment_attempts")))
@@ -103,7 +110,11 @@ class ArticleEnrichmentService implements ArticleEnrichment {
 		UUID tagId = jdbc.sql("select id from tags where name = :name").param("name", name).query(UUID.class)
 				.optional().orElse(null);
 		if (tagId == null) {
-			long freeTags = jdbc.sql("select count(*) from tags where kind = 'FREE'").query(Long.class).single();
+			// Only free tags that some article still uses count, so tags left behind by purged articles cannot
+			// use up the cap.
+			long freeTags = jdbc.sql("""
+					select count(*) from tags t where t.kind = 'FREE'
+					and exists (select 1 from article_tags at where at.tag_id = t.id)""").query(Long.class).single();
 			if (freeTags >= maxFreeTags) {
 				return; // a model cannot flood the tag table
 			}
@@ -121,6 +132,17 @@ class ArticleEnrichmentService implements ArticleEnrichment {
 	@Transactional
 	public void release(Collection<UUID> articleIds) {
 		transition(articleIds, "PENDING");
+	}
+
+	@Override
+	@Transactional
+	public void releaseWithoutAttempt(Collection<UUID> articleIds) {
+		if (articleIds == null || articleIds.isEmpty()) {
+			return;
+		}
+		jdbc.sql("""
+				update articles set status = 'PENDING', enrichment_attempts = greatest(enrichment_attempts - 1, 0)
+				where id in (:ids) and status = 'ENRICHING'""").param("ids", articleIds).update();
 	}
 
 	@Override
@@ -157,8 +179,10 @@ class ArticleEnrichmentService implements ArticleEnrichment {
 	public boolean requestEnrichment(UUID articleId) {
 		return jdbc.sql("""
 				update articles set status = 'PENDING', enrichment_requested_at = :now
-				where id = :id and status = 'EXCERPT_ONLY'""")
-				.param("now", now()).param("id", articleId).update() > 0;
+				where id = :id and status = 'EXCERPT_ONLY'
+				and (select count(*) from articles where enrichment_requested_at is not null
+				     and status in ('PENDING', 'ENRICHING')) < :max""")
+				.param("now", now()).param("id", articleId).param("max", EnrichmentRequests.MAX_QUEUED_REQUESTS).update() > 0;
 	}
 
 	@Override

@@ -2,6 +2,7 @@ package com.intellhub.enrichment.internal;
 
 import com.intellhub.articles.AppliedEnrichment;
 import com.intellhub.articles.ArticleEnrichment;
+import com.intellhub.articles.ClaimKind;
 import com.intellhub.articles.EnrichmentInput;
 import com.intellhub.enrichment.ProviderException;
 import com.intellhub.enrichment.SummaryItem;
@@ -24,9 +25,14 @@ import org.springframework.stereotype.Component;
  * Turns waiting articles into enriched ones, a few at a time.
  *
  * <p>One {@link #tick()}: take back work a crash left behind, run the cheap pre-filter, then claim small
- * batches (readers' requests first), spend budget, ask the provider chain, validate everything that comes back
- * and store only what passes. Anything that does not is retried and eventually failed. When the provider fails
- * the run stops and backs off; when the budget is spent it stops and leaves the rest queued.
+ * batches, spend budget, ask the provider chain, validate everything that comes back and store only what
+ * passes. Readers' requests are claimed first and as their own batches, because only they may spend the
+ * reserved part of the budget; background work comes after and may not. The budget is checked before
+ * anything is claimed. When the provider fails the run stops and backs off; when the budget is spent it stops
+ * and leaves the rest queued.
+ *
+ * <p>An article is only charged an attempt when the provider got it wrong. If the provider was down, the
+ * budget ran out or something broke, the claim is handed back with the attempt refunded.
  *
  * <p>Logs carry counts and exception class names only, never article text or anything a model returned.
  */
@@ -55,6 +61,8 @@ class EnrichmentWorker {
 
 	private final EnrichmentProperties properties;
 
+	private final CallBudget budget;
+
 	private final Clock clock;
 
 	private final AtomicBoolean running = new AtomicBoolean();
@@ -66,12 +74,13 @@ class EnrichmentWorker {
 	private LocalDate budgetLoggedOn;
 
 	EnrichmentWorker(ArticleEnrichment articles, Triage triage, ProviderChain chain, EnrichmentValidator validator,
-			EnrichmentProperties properties, Clock clock) {
+			EnrichmentProperties properties, CallBudget budget, Clock clock) {
 		this.articles = articles;
 		this.triage = triage;
 		this.chain = chain;
 		this.validator = validator;
 		this.properties = properties;
+		this.budget = budget;
 		this.clock = clock;
 	}
 
@@ -114,29 +123,41 @@ class EnrichmentWorker {
 		List<UUID> toFail = new ArrayList<>();
 		try {
 			while (batches < properties.maxBatchesPerTick()) {
-				List<EnrichmentInput> claimed = articles.claimBatch(properties.batchSize());
+				if (budget.remaining(BudgetPriority.RESERVED) <= 0) {
+					logBudgetSpentOncePerDay();
+					stoppedBecause = "the daily budget is spent";
+					break;
+				}
+				// Readers' requests first, as their own batch: only they may use the reserved budget.
+				BudgetPriority priority = BudgetPriority.RESERVED;
+				List<EnrichmentInput> claimed = articles.claimBatch(properties.batchSize(), ClaimKind.REQUESTED);
+				if (claimed.isEmpty() && budget.remaining(BudgetPriority.NORMAL) > 0) {
+					priority = BudgetPriority.NORMAL;
+					claimed = articles.claimBatch(properties.batchSize(), ClaimKind.BACKGROUND);
+				}
 				if (claimed.isEmpty()) {
 					break;
 				}
 				batches++;
 				try {
-					enriched += process(claimed, toRetry, toFail);
+					enriched += process(claimed, priority, toRetry, toFail);
 				}
 				catch (BudgetExhaustedException e) {
-					releaseAll(claimed);
+					// Someone else took the last call between the check and the claim.
+					handBack(claimed);
 					logBudgetSpentOncePerDay();
 					stoppedBecause = "the daily budget is spent";
 					break;
 				}
 				catch (ProviderException e) {
-					releaseAll(claimed);
+					handBack(claimed);
 					startBackoff(e);
 					stoppedBecause = "the provider failed: " + e.getKind();
 					break;
 				}
 				catch (RuntimeException e) {
 					// Whatever went wrong, hand the batch back and stop; the message could hold article text.
-					releaseAll(claimed);
+					handBack(claimed);
 					log.warn("Enrichment batch failed unexpectedly: {}", e.getClass().getSimpleName());
 					stoppedBecause = "an unexpected error";
 					break;
@@ -161,14 +182,12 @@ class EnrichmentWorker {
 	}
 
 	/** Returns how many articles were enriched; adds the ones to retry or fail to the given lists. */
-	private int process(List<EnrichmentInput> claimed, List<UUID> toRetry, List<UUID> toFail)
+	private int process(List<EnrichmentInput> claimed, BudgetPriority priority, List<UUID> toRetry, List<UUID> toFail)
 			throws ProviderException, BudgetExhaustedException {
 		List<SummaryItem> items = new ArrayList<>();
 		for (int i = 0; i < claimed.size(); i++) {
 			items.add(new SummaryItem(i, claimed.get(i).title(), claimed.get(i).excerpt()));
 		}
-		BudgetPriority priority = claimed.stream().anyMatch(EnrichmentInput::requested) ? BudgetPriority.RESERVED
-				: BudgetPriority.NORMAL;
 		ProviderChain.Answer answer = chain.summarize(items, priority);
 		Outcome outcome = validator.validate(items, answer.results());
 
@@ -176,7 +195,7 @@ class EnrichmentWorker {
 		for (Map.Entry<Integer, Accepted> entry : outcome.accepted().entrySet()) {
 			Accepted accepted = entry.getValue();
 			applied.add(new AppliedEnrichment(claimed.get(entry.getKey()).id(), accepted.summary(), accepted.category(),
-					accepted.relevance(), accepted.tags(), "LLM", answer.provider()));
+					accepted.relevance(), accepted.tags(), answer.tagOrigin(), answer.provider()));
 		}
 		articles.applyResults(applied, properties.maxFreeTags());
 
@@ -187,8 +206,9 @@ class EnrichmentWorker {
 		return applied.size();
 	}
 
-	private void releaseAll(List<EnrichmentInput> claimed) {
-		articles.release(claimed.stream().map(EnrichmentInput::id).toList());
+	/** Gives the claim back and refunds the attempt: the article was not at fault. */
+	private void handBack(List<EnrichmentInput> claimed) {
+		articles.releaseWithoutAttempt(claimed.stream().map(EnrichmentInput::id).toList());
 	}
 
 	/** 30 seconds, doubling each time in a row, up to 15 minutes; a longer retry-after from the provider wins. */
@@ -207,7 +227,7 @@ class EnrichmentWorker {
 		LocalDate today = LocalDate.ofInstant(clock.instant(), properties.budgetZone());
 		if (!today.equals(budgetLoggedOn)) {
 			budgetLoggedOn = today;
-			log.info("The daily enrichment budget is spent; remaining articles stay queued until tomorrow");
+			log.info("The daily enrichment budget is spent; any remaining articles stay queued until tomorrow");
 		}
 	}
 

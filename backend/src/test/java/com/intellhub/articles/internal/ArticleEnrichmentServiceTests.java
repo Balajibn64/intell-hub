@@ -6,6 +6,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.intellhub.TestcontainersConfiguration;
 import com.intellhub.articles.AppliedEnrichment;
 import com.intellhub.articles.ArticleEnrichment;
+import com.intellhub.articles.ClaimKind;
+import com.intellhub.articles.EnrichmentRequests;
 import com.intellhub.articles.EnrichmentInput;
 import com.intellhub.articles.TriageCandidate;
 import java.sql.Timestamp;
@@ -37,14 +39,17 @@ class ArticleEnrichmentServiceTests {
 
 	private final ArticleEnrichment enrichment;
 
+	private final EnrichmentRequests requests;
+
 	private final JdbcTemplate jdbc;
 
 	private UUID source;
 
 	private int counter;
 
-	ArticleEnrichmentServiceTests(ArticleEnrichment enrichment, JdbcTemplate jdbc) {
+	ArticleEnrichmentServiceTests(ArticleEnrichment enrichment, EnrichmentRequests requests, JdbcTemplate jdbc) {
 		this.enrichment = enrichment;
+		this.requests = requests;
 		this.jdbc = jdbc;
 	}
 
@@ -136,7 +141,7 @@ class ArticleEnrichmentServiceTests {
 	void claimingMarksArticlesEnrichingCountsTheAttemptAndReturnsPlainTextInput() {
 		UUID id = article("PENDING", 0.5, 1);
 
-		List<EnrichmentInput> batch = enrichment.claimBatch(5);
+		List<EnrichmentInput> batch = enrichment.claimBatch(5, ClaimKind.BACKGROUND);
 
 		assertThat(batch).hasSize(1);
 		EnrichmentInput input = batch.get(0);
@@ -160,32 +165,48 @@ class ArticleEnrichmentServiceTests {
 		UUID b = article("PENDING", 0.8, 7);
 		UUID c = article("PENDING", 0.7, 8);
 
-		List<EnrichmentInput> batch = enrichment.claimBatch(2);
+		List<EnrichmentInput> batch = enrichment.claimBatch(2, ClaimKind.BACKGROUND);
 
 		assertThat(batch).extracting(EnrichmentInput::id).containsExactlyInAnyOrder(a, b);
 		assertThat(status(c)).isEqualTo("PENDING");
-		assertThat(enrichment.claimBatch(0)).isEmpty();
-		assertThat(enrichment.claimBatch(-3)).isEmpty();
+		assertThat(enrichment.claimBatch(0, ClaimKind.BACKGROUND)).isEmpty();
+		assertThat(enrichment.claimBatch(-3, ClaimKind.BACKGROUND)).isEmpty();
 	}
 
 	@Test
-	void claimingGoesRequestedFirstThenHighestScoreThenNewest() {
+	void backgroundClaimsGoByHighestScoreThenNewestAndNeverTakeReadersRequests() {
 		UUID lowScore = article("PENDING", 0.1, 10);
 		UUID highOld = article("PENDING", 0.9, 1);
 		UUID highNew = article("PENDING", 0.9, 2);
-		UUID requested = article("PENDING", 0.05, 3);
+		UUID requested = article("PENDING", 0.99, 3);
 		jdbc.update("update articles set enrichment_requested_at = now() where id = ?", requested);
 
-		List<EnrichmentInput> batch = enrichment.claimBatch(4);
+		List<EnrichmentInput> batch = enrichment.claimBatch(10, ClaimKind.BACKGROUND);
 
-		assertThat(batch).extracting(EnrichmentInput::id).containsExactly(requested, highNew, highOld, lowScore);
-		assertThat(batch.get(0).requested()).isTrue();
-		assertThat(batch.get(1).requested()).isFalse();
+		assertThat(batch).extracting(EnrichmentInput::id).containsExactly(highNew, highOld, lowScore);
+		assertThat(batch).noneMatch(EnrichmentInput::requested);
+		assertThat(status(requested)).isEqualTo("PENDING");
+	}
+
+	@Test
+	void requestedClaimsTakeOnlyReadersRequestsOldestFirst() {
+		article("PENDING", 0.99, 1); // background work with a top score
+		UUID second = article("PENDING", 0.01, 2);
+		UUID first = article("PENDING", 0.05, 3);
+		jdbc.update("update articles set enrichment_requested_at = now() - interval '2 minutes' where id = ?", first);
+		jdbc.update("update articles set enrichment_requested_at = now() - interval '1 minute' where id = ?", second);
+
+		List<EnrichmentInput> batch = enrichment.claimBatch(10, ClaimKind.REQUESTED);
+
+		assertThat(batch).extracting(EnrichmentInput::id).containsExactly(first, second);
+		assertThat(batch).allMatch(EnrichmentInput::requested);
+		assertThat(enrichment.claimBatch(10, ClaimKind.REQUESTED)).isEmpty();
+		assertThat(jdbc.queryForObject("select count(*) from articles where status = 'PENDING'", Integer.class)).isEqualTo(1);
 	}
 
 	@Test
 	void anEmptyQueueGivesAnEmptyBatch() {
-		assertThat(enrichment.claimBatch(5)).isEmpty();
+		assertThat(enrichment.claimBatch(5, ClaimKind.BACKGROUND)).isEmpty();
 	}
 
 	@Test
@@ -203,7 +224,7 @@ class ArticleEnrichmentServiceTests {
 				futures.add(pool.submit(() -> {
 					ready.countDown();
 					go.await();
-					return enrichment.claimBatch(3);
+					return enrichment.claimBatch(3, ClaimKind.BACKGROUND);
 				}));
 			}
 			ready.await();
@@ -231,7 +252,7 @@ class ArticleEnrichmentServiceTests {
 	void applyingResultsFillsTheArticleAndLinksTags() {
 		UUID id = article("PENDING", 0.5, 1);
 		enrichment.upsertTaxonomyTags(List.of("kubernetes"));
-		enrichment.claimBatch(1);
+		enrichment.claimBatch(1, ClaimKind.BACKGROUND);
 
 		enrichment.applyResults(List.of(applied(id, "SOFTWARE_ENGINEERING", List.of("kubernetes", "operators"))), 100);
 
@@ -266,7 +287,7 @@ class ArticleEnrichmentServiceTests {
 	@Test
 	void applyingAgainReplacesTheModelsTagsButKeepsOtherOrigins() {
 		UUID id = article("PENDING", 0.5, 1);
-		enrichment.claimBatch(1);
+		enrichment.claimBatch(1, ClaimKind.BACKGROUND);
 		enrichment.applyResults(List.of(applied(id, null, List.of("first", "second"))), 100);
 		jdbc.update("update articles set status = 'ENRICHING' where id = ?", id);
 		jdbc.update("""
@@ -282,7 +303,7 @@ class ArticleEnrichmentServiceTests {
 	void theSameTagIsStoredOnceAcrossArticles() {
 		UUID a = article("PENDING", 0.5, 1);
 		UUID b = article("PENDING", 0.5, 2);
-		enrichment.claimBatch(2);
+		enrichment.claimBatch(2, ClaimKind.BACKGROUND);
 
 		enrichment.applyResults(List.of(applied(a, null, List.of("rust")), applied(b, null, List.of("rust"))), 100);
 
@@ -295,7 +316,7 @@ class ArticleEnrichmentServiceTests {
 	void newFreeTagsStopWhenTheCapIsReachedButExistingTagsStillLink() {
 		UUID a = article("PENDING", 0.5, 1);
 		UUID b = article("PENDING", 0.5, 2);
-		enrichment.claimBatch(2);
+		enrichment.claimBatch(2, ClaimKind.BACKGROUND);
 
 		enrichment.applyResults(List.of(applied(a, null, List.of("one", "two", "three"))), 2);
 		enrichment.applyResults(List.of(applied(b, null, List.of("two", "four"))), 2);
@@ -308,7 +329,7 @@ class ArticleEnrichmentServiceTests {
 	@Test
 	void theDatabaseRejectsBadCategoriesAndBadTagNamesAndRollsEverythingBack() {
 		UUID id = article("PENDING", 0.5, 1);
-		enrichment.claimBatch(1);
+		enrichment.claimBatch(1, ClaimKind.BACKGROUND);
 
 		assertThatThrownBy(() -> enrichment.applyResults(List.of(applied(id, "SPORTS", List.of("ok"))), 100))
 				.isInstanceOf(DataIntegrityViolationException.class);
@@ -325,7 +346,7 @@ class ArticleEnrichmentServiceTests {
 	void releaseAndFailOnlyMoveArticlesThatAreEnriching() {
 		UUID claimed = article("PENDING", 0.5, 1);
 		UUID other = article("PENDING", 0.5, 2);
-		enrichment.claimBatch(1);
+		enrichment.claimBatch(1, ClaimKind.BACKGROUND);
 		UUID enrichingId = jdbc.queryForObject("select id from articles where status = 'ENRICHING'", UUID.class);
 		UUID pendingId = enrichingId.equals(claimed) ? other : claimed;
 
@@ -333,7 +354,7 @@ class ArticleEnrichmentServiceTests {
 		assertThat(status(pendingId)).isEqualTo("PENDING");
 		enrichment.release(List.of(enrichingId));
 		assertThat(status(enrichingId)).isEqualTo("PENDING");
-		enrichment.claimBatch(5);
+		enrichment.claimBatch(5, ClaimKind.BACKGROUND);
 		enrichment.fail(List.of(enrichingId));
 		assertThat(status(enrichingId)).isEqualTo("FAILED");
 		enrichment.release(List.of());
@@ -344,7 +365,7 @@ class ArticleEnrichmentServiceTests {
 	void staleClaimsAreRecoveredAndRecentOnesAreLeftAlone() {
 		UUID stale = article("PENDING", 0.5, 1);
 		UUID recent = article("PENDING", 0.5, 2);
-		enrichment.claimBatch(2);
+		enrichment.claimBatch(2, ClaimKind.BACKGROUND);
 		jdbc.update("update articles set claimed_at = now() - interval '30 minutes' where id = ?", stale);
 		jdbc.update("update articles set claimed_at = now() - interval '1 minute' where id = ?", recent);
 
@@ -359,7 +380,7 @@ class ArticleEnrichmentServiceTests {
 	void failedArticlesAreRetriedAfterADayWithTheirAttemptsReset() {
 		UUID old = article("PENDING", 0.5, 1);
 		UUID fresh = article("PENDING", 0.5, 2);
-		enrichment.claimBatch(2);
+		enrichment.claimBatch(2, ClaimKind.BACKGROUND);
 		enrichment.fail(List.of(old, fresh));
 		jdbc.update("update articles set claimed_at = now() - interval '25 hours' where id = ?", old);
 
@@ -376,26 +397,87 @@ class ArticleEnrichmentServiceTests {
 	void requestingEnrichmentOnlyWorksForSkippedArticlesAndOnlyOnce() {
 		UUID skipped = article("EXCERPT_ONLY", 0.1, 1);
 
-		assertThat(enrichment.requestEnrichment(skipped)).isTrue();
+		assertThat(requests.requestEnrichment(skipped)).isTrue();
 		assertThat(status(skipped)).isEqualTo("PENDING");
 		assertThat(jdbc.queryForObject("select enrichment_requested_at is not null from articles where id = ?", Boolean.class, skipped)).isTrue();
-		assertThat(enrichment.requestEnrichment(skipped)).isFalse();
+		assertThat(requests.requestEnrichment(skipped)).isFalse();
 
 		for (String state : List.of("PENDING", "ENRICHING", "ENRICHED", "FAILED")) {
 			UUID id = article(state, 0.5, 5);
-			assertThat(enrichment.requestEnrichment(id)).as(state).isFalse();
+			assertThat(requests.requestEnrichment(id)).as(state).isFalse();
 			assertThat(status(id)).isEqualTo(state);
 		}
-		assertThat(enrichment.requestEnrichment(UUID.randomUUID())).isFalse();
+		assertThat(requests.requestEnrichment(UUID.randomUUID())).isFalse();
 	}
 
 	@Test
-	void aRequestedArticleIsClaimedBeforeOthersEvenWithALowScore() {
+	void aRequestedArticleIsServedByRequestedClaimsEvenWithALowScore() {
 		article("PENDING", 0.99, 1);
 		UUID skipped = article("EXCERPT_ONLY", 0.01, 2);
-		enrichment.requestEnrichment(skipped);
+		requests.requestEnrichment(skipped);
 
-		assertThat(enrichment.claimBatch(1)).extracting(EnrichmentInput::id).containsExactly(skipped);
+		assertThat(enrichment.claimBatch(1, ClaimKind.REQUESTED)).extracting(EnrichmentInput::id).containsExactly(skipped);
+	}
+
+	@Test
+	void queuedRequestsAreCappedSoOneScriptCannotFillTheQueue() {
+		List<UUID> skipped = new ArrayList<>();
+		for (int i = 0; i < EnrichmentRequests.MAX_QUEUED_REQUESTS + 5; i++) {
+			skipped.add(article("EXCERPT_ONLY", 0.0, i));
+		}
+
+		int accepted = 0;
+		for (UUID id : skipped) {
+			if (requests.requestEnrichment(id)) {
+				accepted++;
+			}
+		}
+
+		assertThat(accepted).isEqualTo(EnrichmentRequests.MAX_QUEUED_REQUESTS);
+		assertThat(jdbc.queryForObject("select count(*) from articles where status = 'EXCERPT_ONLY'", Integer.class)).isEqualTo(5);
+		// Once one is served the queue has room again.
+		UUID served = enrichment.claimBatch(1, ClaimKind.REQUESTED).get(0).id();
+		enrichment.applyResults(List.of(applied(served, null, List.of())), 100);
+		UUID waiting = jdbc.queryForObject("select id from articles where status = 'EXCERPT_ONLY' limit 1", UUID.class);
+		assertThat(requests.requestEnrichment(waiting)).isTrue();
+	}
+
+	@Test
+	void anAttemptIsRefundedWhenTheArticleWasNotAtFaultButNotWhenItWas() {
+		UUID id = article("PENDING", 0.5, 1);
+		enrichment.claimBatch(1, ClaimKind.BACKGROUND);
+		assertThat(attempts(id)).isEqualTo(1);
+
+		enrichment.releaseWithoutAttempt(List.of(id));
+		assertThat(status(id)).isEqualTo("PENDING");
+		assertThat(attempts(id)).isZero();
+
+		enrichment.claimBatch(1, ClaimKind.BACKGROUND);
+		enrichment.release(List.of(id));
+		assertThat(attempts(id)).isEqualTo(1);
+
+		enrichment.releaseWithoutAttempt(List.of(id)); // not ENRICHING any more: nothing changes
+		assertThat(attempts(id)).isEqualTo(1);
+		UUID fresh = article("PENDING", 0.4, 2);
+		enrichment.releaseWithoutAttempt(List.of(fresh));
+		assertThat(attempts(fresh)).isZero(); // never goes below zero
+		enrichment.releaseWithoutAttempt(List.of());
+		enrichment.releaseWithoutAttempt(null);
+	}
+
+	@Test
+	void freeTagsLeftBehindByDeletedArticlesDoNotUseUpTheCap() {
+		UUID gone = article("PENDING", 0.5, 1);
+		enrichment.claimBatch(1, ClaimKind.BACKGROUND);
+		enrichment.applyResults(List.of(applied(gone, null, List.of("old-one", "old-two"))), 2);
+		jdbc.update("delete from articles where id = ?", gone);
+		assertThat(jdbc.queryForObject("select count(*) from tags where kind = 'FREE'", Integer.class)).isEqualTo(2);
+
+		UUID fresh = article("PENDING", 0.5, 2);
+		enrichment.claimBatch(1, ClaimKind.BACKGROUND);
+		enrichment.applyResults(List.of(applied(fresh, null, List.of("new-one", "new-two"))), 2);
+
+		assertThat(tagsOf(fresh)).containsExactly("new-one", "new-two");
 	}
 
 	// ---- tags and integrity ----
@@ -431,7 +513,7 @@ class ArticleEnrichmentServiceTests {
 	@Test
 	void deletingAnArticleOrATagRemovesTheLinks() {
 		UUID id = article("PENDING", 0.5, 1);
-		enrichment.claimBatch(1);
+		enrichment.claimBatch(1, ClaimKind.BACKGROUND);
 		enrichment.applyResults(List.of(applied(id, null, List.of("alpha", "beta"))), 100);
 
 		jdbc.update("delete from tags where name = 'alpha'");

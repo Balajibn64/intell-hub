@@ -35,6 +35,9 @@ class EnrichmentPropertiesTests {
 	void anUnknownProviderIsRefusedAtStartup() {
 		assertThat(validator.validate(with("gemini", 250, 50, 5, 0.15))).isNotEmpty();
 		assertThat(validator.validate(with("FAKE", 250, 50, 5, 0.15))).isNotEmpty();
+		// A stray space must fail loudly at startup, not enable the scheduler while no provider exists.
+		assertThat(validator.validate(with("fake ", 250, 50, 5, 0.15))).isNotEmpty();
+		assertThat(validator.validate(with(" fake", 250, 50, 5, 0.15))).isNotEmpty();
 	}
 
 	@Test

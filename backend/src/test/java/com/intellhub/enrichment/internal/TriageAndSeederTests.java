@@ -23,6 +23,8 @@ class TriageAndSeederTests {
 
 	private final ArticleEnrichment articles;
 
+	private final com.intellhub.articles.EnrichmentRequests requests;
+
 	private final Taxonomy taxonomy;
 
 	private final JdbcTemplate jdbc;
@@ -31,8 +33,10 @@ class TriageAndSeederTests {
 
 	private int counter;
 
-	TriageAndSeederTests(ArticleEnrichment articles, Taxonomy taxonomy, JdbcTemplate jdbc) {
+	TriageAndSeederTests(ArticleEnrichment articles, com.intellhub.articles.EnrichmentRequests requests, Taxonomy taxonomy,
+			JdbcTemplate jdbc) {
 		this.articles = articles;
+		this.requests = requests;
 		this.taxonomy = taxonomy;
 		this.jdbc = jdbc;
 	}
@@ -125,9 +129,9 @@ class TriageAndSeederTests {
 		article("Kubernetes news", "kubernetes everywhere");
 		new Triage(articles, taxonomy, props(0.15, false)).run(100);
 
-		assertThat(articles.requestEnrichment(skipped)).isTrue();
+		assertThat(requests.requestEnrichment(skipped)).isTrue();
 
-		assertThat(articles.claimBatch(1)).extracting(c -> c.id()).containsExactly(skipped);
+		assertThat(articles.claimBatch(1, com.intellhub.articles.ClaimKind.REQUESTED)).extracting(c -> c.id()).containsExactly(skipped);
 	}
 
 	// ---- seeder ----
