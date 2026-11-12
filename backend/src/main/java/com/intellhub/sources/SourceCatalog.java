@@ -20,4 +20,7 @@ public interface SourceCatalog {
 	 */
 	void recordFetchResult(UUID sourceId, FetchResult result);
 
+	/** The health of every source, for the admin status page. */
+	SourceHealthReport health();
+
 }

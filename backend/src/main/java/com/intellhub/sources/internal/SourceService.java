@@ -5,6 +5,7 @@ import com.intellhub.shared.PublicUrlPolicy;
 import com.intellhub.shared.Text;
 import com.intellhub.sources.FetchResult;
 import com.intellhub.sources.SourceCatalog;
+import com.intellhub.sources.SourceHealthReport;
 import com.intellhub.sources.SourceInfo;
 import com.intellhub.sources.SourceType;
 import java.time.Clock;
@@ -129,6 +130,19 @@ class SourceService implements SourceCatalog {
 	void delete(UUID id) {
 		Source source = sources.findById(id).orElseThrow(SourceService::notFound);
 		sources.delete(source);
+	}
+
+	@Override
+	@Transactional(readOnly = true)
+	public SourceHealthReport health() {
+		List<SourceHealthReport.SourceHealth> all = sources.findAllByOrderByCreatedAtAsc().stream()
+				.map(s -> new SourceHealthReport.SourceHealth(s.getId(), s.getName(), s.getType(), s.isEnabled(), s.getLastFetchedAt(),
+						s.getLastStatus() == null ? null : s.getLastStatus().name(), s.getLastError(), s.getConsecutiveFailures()))
+				.toList();
+		int enabled = (int) all.stream().filter(SourceHealthReport.SourceHealth::enabled).count();
+		int failing = (int) all.stream().filter(s -> s.enabled() && "FAILED".equals(s.lastStatus())).count();
+		int neverFetched = (int) all.stream().filter(s -> s.enabled() && s.lastFetchedAt() == null).count();
+		return new SourceHealthReport(all.size(), enabled, failing, neverFetched, all);
 	}
 
 	@Transactional(readOnly = true)
