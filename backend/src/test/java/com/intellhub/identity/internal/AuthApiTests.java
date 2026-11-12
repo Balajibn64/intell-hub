@@ -306,7 +306,8 @@ class AuthApiTests {
 		mvc.perform(get("/actuator/health")).andExpect(status().isOk());
 		mvc.perform(get("/actuator/env")).andExpect(status().isUnauthorized());
 		mvc.perform(get("/api/v1/anything")).andExpect(status().isUnauthorized());
-		mvc.perform(post("/internal/ingest")).andExpect(status().isUnauthorized());
+		// /internal/** has its own chain that answers every refusal with the same 403.
+		mvc.perform(post("/internal/ingest")).andExpect(status().isForbidden());
 	}
 
 	@Test

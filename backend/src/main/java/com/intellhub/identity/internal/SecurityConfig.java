@@ -49,7 +49,7 @@ class SecurityConfig {
 						.requestMatchers("/actuator/health", "/actuator/health/**").permitAll()
 						.requestMatchers(HttpMethod.POST, "/api/v1/auth/login", "/api/v1/auth/refresh",
 								"/api/v1/auth/logout").permitAll()
-						// Reserved for the ingestion milestone, which adds its own shared-secret check.
+						// /internal/** has its own chain in the ingestion module; anything that still reaches here is refused.
 						.requestMatchers("/internal/**").denyAll()
 						// Every admin route needs ADMIN, so a new controller that forgets @PreAuthorize is still safe.
 						.requestMatchers("/api/v1/admin/**").hasRole("ADMIN")

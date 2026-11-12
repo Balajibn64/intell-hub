@@ -50,8 +50,8 @@ Tooling: ESLint + Prettier, Vitest + React Testing Library. UI design happens be
 | Need | Choice | Why |
 |---|---|---|
 | RSS/Atom | `com.rometools:rome` 2.1.0 behind our own `FeedParser` interface | Standard Java feed parser; reduced maintenance, so keep it swappable |
-| HTTP | Spring `RestClient` or JDK `HttpClient` | No extra dependency; supports timeouts and size bounds |
-| HTML sanitizing | OWASP Java HTML Sanitizer (or jsoup `Safelist`) | Feed content is untrusted |
+| HTTP | Apache HttpClient 5 (version managed by Boot) | Chosen in M3: it accepts a custom DNS resolver, so the address we check is the address we connect to (SSRF defence). The JDK client cannot do this without connecting by IP and fighting TLS name checks |
+| HTML sanitizing | jsoup 1.24.1 `Safelist` | Chosen in M3: one library sanitizes HTML and extracts plain text, so no second tool is needed. Feed content is untrusted |
 | HN | Official Firebase/Algolia API | Official, no scraping |
 | GitHub releases | GitHub REST API with token | Official; token in env var |
 | arXiv/HF | arXiv API / Atom feeds; HF official endpoints | Official |

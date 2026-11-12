@@ -63,10 +63,11 @@ erDiagram
 | V1__baseline.sql | Baseline (M0): proves Flyway runs |
 | V2__identity.sql | users, refresh_tokens (M1, done) |
 | V3__sources.sql | sources (M2, done) |
-| V4__articles_tags.sql | articles, tags, article_tags, indexes, search vector |
-| V5__personalization.sql | user_tag_weights, article_events, saved_articles |
-| V6__enrichment_usage.sql | llm_usage |
-| V7__seed_taxonomy.sql | Initial taxonomy tags (idempotent inserts) |
+| V4__articles.sql | articles with unique canonical URL and content hash, indexes, search vector (M3, done) |
+| V5__tags.sql | tags, article_tags |
+| V6__personalization.sql | user_tag_weights, article_events, saved_articles |
+| V7__enrichment_usage.sql | llm_usage |
+| V8__seed_taxonomy.sql | Initial taxonomy tags (idempotent inserts) |
 
 First admin user comes from `ADMIN_EMAIL` and `ADMIN_PASSWORD` on first start, only while no users exist, not from a migration, so no credentials live in the repo.
 
@@ -113,7 +114,7 @@ Base path `/api/v1`. JSON. Auth via `Authorization: Bearer <access JWT>`, except
 ### Internal
 | Method | Path | Notes |
 |---|---|---|
-| POST | /internal/ingest | Shared-secret header, not a JWT. Returns 202 with a run summary. Not exposed through the frontend |
+| POST | /internal/ingest | Header `X-Ingest-Token` with `INGEST_SECRET` (32+ characters), never a JWT. Runs one ingestion and returns 200 with a summary (counts, source names, fixed error texts), or 409 `INGEST_RUNNING` if a run is already in progress. Every refusal is the same 403, including when no secret is configured. Not exposed through the frontend |
 
 ## 8. Security notes
 - BCrypt for passwords; constant-time secret comparison for `/internal/ingest`.

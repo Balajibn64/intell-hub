@@ -1,6 +1,8 @@
 package com.intellhub.identity.internal;
 
+import com.intellhub.shared.Placeholders;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
@@ -37,6 +39,12 @@ record IdentityProperties(
 			@NotBlank @Size(min = 32, message = "JWT secret must be at least 32 characters") String secret,
 			@DefaultValue("intellhub") @NotBlank String issuer,
 			@DefaultValue("15m") @NotNull Duration accessTtl) {
+
+		@AssertTrue(message = "JWT secret still has the placeholder value from .env.example; generate a real one")
+		boolean isNotPlaceholder() {
+			return !Placeholders.isPlaceholder(secret);
+		}
+
 	}
 
 	record Refresh(

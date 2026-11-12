@@ -1,11 +1,12 @@
 package com.intellhub.sources.internal;
 
 import com.intellhub.shared.ApiException;
+import com.intellhub.shared.PublicUrlPolicy;
+import com.intellhub.shared.Text;
 import com.intellhub.sources.FetchResult;
 import com.intellhub.sources.SourceCatalog;
 import com.intellhub.sources.SourceInfo;
 import com.intellhub.sources.SourceType;
-import java.net.URI;
 import java.time.Clock;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -141,23 +142,9 @@ class SourceService implements SourceCatalog {
 		return value;
 	}
 
-	/**
-	 * Brings equivalent URLs to one form, so the same feed cannot be added twice: lowercase scheme and
-	 * host, no trailing dot on the host, and no port when it is the default for the scheme. The URL must
-	 * already have passed {@link SourceUrlValidator}.
-	 */
+	/** See {@link PublicUrlPolicy#normalize(String)}; the URL must already have been validated. */
 	static String normalizeUrl(String url) {
-		URI uri = URI.create(url);
-		String scheme = uri.getScheme().toLowerCase(Locale.ROOT);
-		String host = uri.getHost().toLowerCase(Locale.ROOT);
-		if (host.endsWith(".")) {
-			host = host.substring(0, host.length() - 1);
-		}
-		int port = uri.getPort();
-		boolean defaultPort = (scheme.equals("http") && port == 80) || (scheme.equals("https") && port == 443);
-		String authority = host + (port == -1 || defaultPort ? "" : ":" + port);
-		int restStart = url.indexOf("://") + 3 + uri.getRawAuthority().length();
-		return scheme + "://" + authority + url.substring(restStart);
+		return PublicUrlPolicy.normalize(url);
 	}
 
 	/** A deep, read-only copy, so a caller cannot change nested values of the stored config. */
@@ -188,11 +175,7 @@ class SourceService implements SourceCatalog {
 		if (flat.length() <= MAX_ERROR_LENGTH) {
 			return flat;
 		}
-		int end = MAX_ERROR_LENGTH;
-		if (Character.isHighSurrogate(flat.charAt(end - 1))) {
-			end--;
-		}
-		return flat.substring(0, end);
+		return Text.cut(flat, MAX_ERROR_LENGTH);
 	}
 
 	private static ApiException exists() {
