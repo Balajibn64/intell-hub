@@ -35,6 +35,16 @@ intellhub:
     schedule-enabled: ${INGEST_SCHEDULE_ENABLED:false}
     cron: "${INGEST_CRON:0 0 */4 * * *}"
 
+  enrichment:
+    # Which provider summarizes and tags articles. Unset (the default) turns enrichment off: articles stay
+    # pending and the feed shows them as not yet summarized. Only "fake" exists until the real providers arrive.
+    provider: ${ENRICHMENT_PROVIDER:}
+    # Provider calls per day across all providers, and how many of those only a reader's request may use.
+    daily-budget: ${ENRICHMENT_DAILY_BUDGET:250}
+    reserved-calls: ${ENRICHMENT_RESERVED_CALLS:50}
+    # The time zone whose midnight starts a new day of budget.
+    budget-zone: ${ENRICHMENT_BUDGET_ZONE:UTC}
+
   sources:
     # Adds the starter feeds from default-sources.json, only while there are no sources at all.
     seed-defaults: ${SEED_DEFAULT_SOURCES:true}

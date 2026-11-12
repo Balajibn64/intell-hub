@@ -4,10 +4,14 @@ import com.intellhub.articles.ArticleCatalog;
 import com.intellhub.articles.ArticleFilter;
 import com.intellhub.articles.ArticlePage;
 import com.intellhub.articles.ArticleView;
+import com.intellhub.articles.TagView;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.jdbc.core.RowMapper;
@@ -45,6 +49,9 @@ class ArticleCatalogService implements ArticleCatalog {
 		if (f.category() != null && !CATEGORIES.contains(f.category())) {
 			throw new IllegalArgumentException("unknown category");
 		}
+		if (f.tag() != null && !TAG_NAME.matcher(f.tag()).matches()) {
+			throw new IllegalArgumentException("invalid tag");
+		}
 		if (f.onlyIds() != null && f.onlyIds().isEmpty()) {
 			return new ArticlePage(List.of(), page, size, 0);
 		}
@@ -59,6 +66,10 @@ class ArticleCatalogService implements ArticleCatalog {
 		if (f.category() != null) {
 			where.append(" and category = :category");
 		}
+		if (f.tag() != null) {
+			where.append(" and exists (select 1 from article_tags at join tags t on t.id = at.tag_id"
+					+ " where at.article_id = articles.id and t.name = :tag)");
+		}
 		if (f.onlyIds() != null) {
 			where.append(" and id in (:ids)");
 		}
@@ -68,14 +79,47 @@ class ArticleCatalogService implements ArticleCatalog {
 				+ " order by published_at desc, id desc limit :limit offset :offset"), query, f)
 				.param("limit", size).param("offset", (long) page * size)
 				.query(LIST_ROWS).list();
-		return new ArticlePage(items, page, size, total);
+		return new ArticlePage(withTags(items), page, size, total);
 	}
 
 	@Override
 	@Transactional(readOnly = true)
 	public Optional<ArticleView> find(UUID id) {
 		return jdbc.sql("select " + ArticleSql.COLUMNS + ", content_sanitized from articles where id = :id")
-				.param("id", id).query(DETAIL_ROWS).optional();
+				.param("id", id).query(DETAIL_ROWS).optional().map(view -> withTags(List.of(view)).get(0));
+	}
+
+	@Override
+	@Transactional(readOnly = true)
+	public List<TagView> tags(int limit) {
+		if (limit < 1 || limit > MAX_TAG_LIST) {
+			throw new IllegalArgumentException("limit is out of range");
+		}
+		return jdbc.sql("""
+				select t.name, t.kind, count(at.article_id) as articles
+				from tags t left join article_tags at on at.tag_id = t.id
+				group by t.id, t.name, t.kind
+				having t.kind = 'TAXONOMY' or count(at.article_id) > 0
+				order by (t.kind = 'TAXONOMY') desc, count(at.article_id) desc, t.name
+				limit :limit""")
+				.param("limit", limit)
+				.query((rs, n) -> new TagView(rs.getString("name"), rs.getString("kind"), rs.getLong("articles")))
+				.list();
+	}
+
+	/** Adds each article's tags with one query for the whole page. */
+	private List<ArticleView> withTags(List<ArticleView> views) {
+		if (views.isEmpty()) {
+			return views;
+		}
+		Map<UUID, List<String>> byArticle = new HashMap<>();
+		jdbc.sql("""
+				select at.article_id, t.name from article_tags at join tags t on t.id = at.tag_id
+				where at.article_id in (:ids) order by t.name""")
+				.param("ids", views.stream().map(ArticleView::id).toList())
+				.query((rs, n) -> Map.entry(rs.getObject("article_id", UUID.class), rs.getString("name")))
+				.list().forEach(e -> byArticle.computeIfAbsent(e.getKey(), k -> new ArrayList<>()).add(e.getValue()));
+		return views.stream().map(v -> v.withTags(List.copyOf(byArticle.getOrDefault(v.id(), List.of())))).toList();
 	}
 
 	@Override
@@ -115,6 +159,9 @@ class ArticleCatalogService implements ArticleCatalog {
 		if (f.category() != null) {
 			spec = spec.param("category", f.category());
 		}
+		if (f.tag() != null) {
+			spec = spec.param("tag", f.tag());
+		}
 		if (f.onlyIds() != null) {
 			spec = spec.param("ids", f.onlyIds());
 		}
@@ -130,7 +177,7 @@ class ArticleCatalogService implements ArticleCatalog {
 				rs.getString("canonical_url"), rs.getString("title"), rs.getString("author"),
 				rs.getObject("published_at", OffsetDateTime.class).toInstant(),
 				rs.getObject("ingested_at", OffsetDateTime.class).toInstant(), rs.getString("excerpt"),
-				rs.getString("summary"), rs.getString("category"), rs.getString("status"), content);
+				rs.getString("summary"), rs.getString("category"), rs.getString("status"), List.of(), content);
 	}
 
 }

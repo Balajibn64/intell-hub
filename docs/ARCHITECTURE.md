@@ -36,8 +36,7 @@ flowchart TD
 
     ingestion -->|reads enabled sources| sources
     ingestion -->|stores via the ArticleStore API| articles
-    articles -->|ArticleStored event| enrichment
-    enrichment -->|ArticleEnriched event| articles
+    enrichment -->|claims work and stores results via ArticleEnrichment| articles
     feed -->|reads articles API| articles
     feed -->|reads weights API| personalization
     personalization -->|user id| identity
@@ -45,11 +44,11 @@ flowchart TD
     feed -->|names| sources
     feed -->|current user| identity
     retention -->|purge API| articles
-    enrichment -->|on-open request API| articles
+    feed -->|requests enrichment on open| articles
 ```
 Notes:
 - `identity` is a leaf that other modules reference only by user id (no entity sharing).
-- `articles` owns article rows, including enrichment status fields. `enrichment` writes results back through `articles`' API or by event, not by touching its tables.
+- `articles` owns article rows, tags and the enrichment status fields. `enrichment` claims work and stores results only through the published `ArticleEnrichment` API (direct calls, not events, because every transition must name the state it expects and report whether it applied). Events may return for notifications later.
 - The exact event and API names are decided when implementing; Modulith tests keep the graph acyclic.
 
 ## 4. Ingestion and enrichment flow
@@ -91,6 +90,15 @@ stateDiagram-v2
     ENRICHED --> [*]
 ```
 The state lives in a column on the article row, so a restart just resumes work. No queue infrastructure is needed.
+
+## 5a. Enrichment and untrusted model output (M5)
+A language model reads article text that anyone can write, so **whatever it returns is untrusted** and can be steered. The pipeline is built so that steering can change only a few bounded text fields and nothing else:
+- **Only plain text goes out**: title and excerpt, never stored HTML, secrets or user data. Items carry a position index, and results are matched by that index, never by ids the model supplies.
+- **Everything coming back is validated** (`EnrichmentValidator`): the summary becomes plain text with control, invisible and direction-override characters removed, web addresses dropped and a 600-character limit; the category must be one of three or is dropped; relevance must be a finite number from 0 to 1 or the item is rejected; tags must match a fixed pattern, at most five, and new free tags stop at a global cap; unknown, repeated or missing indexes are ignored or retried. The database re-checks category and tag format as a backstop.
+- **Nothing a model returns is ever followed, fetched or executed.** No tools, no links followed, no instructions obeyed. Summaries, tags and names are rendered as text, never HTML.
+- **Everything is bounded and counted**: a persisted daily call budget (250 by default, 50 reserved for readers' requests, check and increment under an advisory lock), at most three attempts per article, batch size five, exponential backoff, no overlapping runs.
+- **Nothing from an article or a model is logged**: counts and exception class names only.
+- Prompt-level defences (delimited blocks, instructions) are added with the real prompts in M6; this validation layer is what makes them defence in depth rather than the only defence.
 
 ## 6. Key design decisions
 | Concern | Decision |
@@ -158,4 +166,4 @@ Local only for now. Secrets come from environment variables. The same Compose fi
 ## 12. Open items
 1. Exact event and API names per module (decided during implementation).
 2. Retention rule for saved articles (confirm).
-3. Whether `enrichment` writes back by event or through the `articles` API (pick one and apply it consistently).
+3. ~~Whether `enrichment` writes back by event or through the `articles` API~~ Decided (M5): through the `articles` API.

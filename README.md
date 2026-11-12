@@ -61,6 +61,19 @@ Show `contentSanitized` as HTML and everything else as text.
 curl "localhost:8080/api/v1/feed?q=kubernetes&size=10" -H "Authorization: Bearer <accessToken>"
 ```
 
+## Enrichment
+Enrichment adds a summary, tags, a category and a relevance score to articles, a few at a time, in the
+background. It is **off unless you set `ENRICHMENT_PROVIDER=fake`**; the fake provider is offline and
+deterministic (extractive summaries, keyword tags), so it is for trying the pipeline and its results are
+labelled `fake`. Real providers arrive in a later milestone.
+
+With a provider set, new articles go through a free keyword pre-filter. Clearly irrelevant ones only show
+their excerpt (`EXCERPT_ONLY`) until someone opens them, which queues them for enrichment. The rest are
+sent in batches of five. A persisted budget (`ENRICHMENT_DAILY_BUDGET`, default 250 calls a day, of which
+`ENRICHMENT_RESERVED_CALLS`, default 50, are only for openings) keeps it inside free-tier limits; when it
+is spent the remaining articles wait until tomorrow. Whatever a model returns is treated as untrusted and
+validated; summaries, tags and names are text, never HTML.
+
 ## Ingestion
 Ingestion fetches every enabled RSS source, cleans the entries and stores the new ones. It is started
 with a shared secret (set `INGEST_SECRET`, 32+ characters; without it the endpoint refuses every call):
