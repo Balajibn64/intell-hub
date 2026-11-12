@@ -4,9 +4,11 @@ import com.intellhub.articles.ArticleCatalog;
 import com.intellhub.articles.ArticleFilter;
 import com.intellhub.articles.ArticlePage;
 import com.intellhub.articles.ArticleView;
+import com.intellhub.articles.Ranking;
 import com.intellhub.articles.TagView;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.time.Clock;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -29,8 +31,29 @@ class ArticleCatalogService implements ArticleCatalog {
 
 	private final JdbcClient jdbc;
 
-	ArticleCatalogService(JdbcClient jdbc) {
+	private final Clock clock;
+
+	ArticleCatalogService(JdbcClient jdbc, Clock clock) {
 		this.jdbc = jdbc;
+		this.clock = clock;
+	}
+
+	/** At most 100 weights, with valid names and sensible numbers; zero weights add nothing and are dropped. */
+	private static List<Map.Entry<String, Double>> checkedWeights(Ranking ranking) {
+		if (ranking.tagWeights().size() > Ranking.MAX_TAGS) {
+			throw new IllegalArgumentException("too many ranking tags");
+		}
+		List<Map.Entry<String, Double>> weights = new ArrayList<>();
+		for (Map.Entry<String, Double> e : ranking.tagWeights().entrySet()) {
+			double w = e.getValue() == null ? Double.NaN : e.getValue();
+			if (e.getKey() == null || !TAG_NAME.matcher(e.getKey()).matches() || !(w >= 0 && w <= Ranking.MAX_WEIGHT)) {
+				throw new IllegalArgumentException("invalid ranking weight");
+			}
+			if (w > 0) {
+				weights.add(Map.entry(e.getKey(), w));
+			}
+		}
+		return weights;
 	}
 
 	@Override
@@ -76,10 +99,22 @@ class ArticleCatalogService implements ArticleCatalog {
 		}
 
 		long total = bind(jdbc.sql("select count(*) from articles" + where), query, f).query(Long.class).single();
-		List<ArticleView> items = bind(jdbc.sql("select " + ArticleSql.COLUMNS + " from articles" + where
-				+ " order by published_at desc, id desc limit :limit offset :offset"), query, f)
-				.param("limit", size).param("offset", (long) page * size)
-				.query(LIST_ROWS).list();
+		List<ArticleView> items;
+		if (f.ranking() == null) {
+			items = bind(jdbc.sql("select " + ArticleSql.COLUMNS + " from articles" + where
+					+ " order by published_at desc, id desc limit :limit offset :offset"), query, f)
+					.param("limit", size).param("offset", (long) page * size)
+					.query(LIST_ROWS).list();
+		}
+		else {
+			List<Map.Entry<String, Double>> weights = checkedWeights(f.ranking());
+			// One "now" for the whole request, so the order inside a page request is consistent.
+			items = RankingSql.bindWeights(bind(jdbc.sql("select " + ArticleSql.COLUMNS + " from articles"
+					+ RankingSql.affinityJoin(weights.size()) + where + " order by " + RankingSql.SCORE
+					+ " desc, published_at desc, id desc limit :limit offset :offset"), query, f), weights)
+					.param("now", OffsetDateTime.now(clock)).param("limit", size).param("offset", (long) page * size)
+					.query(LIST_ROWS).list();
+		}
 		return new ArticlePage(withTags(items), page, size, total);
 	}
 
