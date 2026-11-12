@@ -3,7 +3,7 @@
 A platform that ingests tech news, engineering content and industry signals, then summarizes, tags and ranks them per user. It is a real project and also a learning project for Claude Code. Explain the "why" briefly when introducing a new tool or pattern.
 
 ## Status
-Planning documents are in `docs/` (drafts, in review) and the build follows `docs/ROADMAP.md`, one milestone at a time. M0 (skeleton), M1 (auth), M2 (sources), M3 (RSS ingestion), M4 (feed API) and M5 (enrichment with a fake provider) are built; do not build ahead of the current milestone unless asked. Track decisions and learning in `PROGRESS.md`.
+Planning documents are in `docs/` (drafts, in review) and the build follows `docs/ROADMAP.md`, one milestone at a time. M0 (skeleton), M1 (auth), M2 (sources), M3 (RSS ingestion), M4 (feed API), M5 (enrichment with a fake provider) and M6 (Gemini and Groq providers) are built; do not build ahead of the current milestone unless asked. Track decisions and learning in `PROGRESS.md`.
 
 ## Stack (decided)
 - Backend: Java 21, Spring Boot 4.x, Spring Modulith (modular monolith), Maven
@@ -47,6 +47,6 @@ Planning documents are in `docs/` (drafts, in review) and the build follows `doc
 - API prefix is `/api/v1`. Public: `/actuator/health` and `POST /api/v1/auth/{login,refresh,logout}`. Everything else needs a bearer token; `/api/v1/admin/**` needs the ADMIN role.
 - Required env vars: `DB_PASSWORD`, `JWT_SECRET` (32+ chars). `ADMIN_EMAIL` and `ADMIN_PASSWORD` create the first admin when no users exist.
 - The UI must render `contentSanitized` as HTML and everything else (titles, authors, excerpts, summaries, source names) as text.
-- `ENRICHMENT_PROVIDER=fake` turns on the offline fake enrichment pipeline; unset means off (articles stay pending). Daily budget `ENRICHMENT_DAILY_BUDGET` (250) with `ENRICHMENT_RESERVED_CALLS` (50) held back for readers' requests. Model output is untrusted: it goes through `EnrichmentValidator` and is shown as text.
+- `ENRICHMENT_PROVIDER` is the ordered provider list (`gemini,groq`, `gemini`, `groq`, or `fake` for the offline stand-in, never mixed); unset means off (articles stay pending). Real providers need `GEMINI_API_KEY` / `GROQ_API_KEY` (startup fails without them); models via `GEMINI_MODEL` (gemini-3.5-flash-lite) and `GROQ_MODEL` (openai/gpt-oss-20b). Daily budget `ENRICHMENT_DAILY_BUDGET` (250) with `ENRICHMENT_RESERVED_CALLS` (50) held back for readers' requests. Model output is untrusted: it goes through `EnrichmentValidator` and is shown as text.
 - `INGEST_SECRET` (32+ chars) enables `POST /internal/ingest` (header `X-Ingest-Token`); unset means it refuses every call. Tests never use the real network: they use a local fake server and fake DNS.
 - After deleting or renaming a class, run `./mvnw clean verify`; stale `.class` files in `target/` can break the context.

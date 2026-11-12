@@ -63,15 +63,20 @@ curl "localhost:8080/api/v1/feed?q=kubernetes&size=10" -H "Authorization: Bearer
 
 ## Enrichment
 Enrichment adds a summary, tags, a category and a relevance score to articles, a few at a time, in the
-background. It is **off unless you set `ENRICHMENT_PROVIDER=fake`**; the fake provider is offline and
-deterministic (extractive summaries, keyword tags), so it is for trying the pipeline and its results are
-labelled `fake`. Real providers arrive in a later milestone.
+background. It is **off unless you set `ENRICHMENT_PROVIDER`**. The value is the providers to try, in order,
+with no spaces: `gemini,groq` uses Gemini Flash-Lite first and falls back to Groq (`openai/gpt-oss-20b`)
+when Gemini fails or is rate limited. Each listed provider needs its key in the environment or the
+gitignored `.env` (`GEMINI_API_KEY`, `GROQ_API_KEY`); the app refuses to start without it. `GEMINI_MODEL`
+and `GROQ_MODEL` override the models. `fake` is an offline, deterministic stand-in (extractive summaries,
+keyword tags) for trying the pipeline without keys; its results are labelled `fake` and it cannot be mixed
+with real providers.
 
 With a provider set, new articles go through a free keyword pre-filter. Clearly irrelevant ones only show
 their excerpt (`EXCERPT_ONLY`) until someone opens them, which queues them for enrichment. The rest are
 sent in batches of five. A persisted budget (`ENRICHMENT_DAILY_BUDGET`, default 250 calls a day, of which
 `ENRICHMENT_RESERVED_CALLS`, default 50, are only for openings) keeps it inside free-tier limits; when it
-is spent the remaining articles wait until tomorrow. Whatever a model returns is treated as untrusted and
+is spent the remaining articles wait until tomorrow. The budget day starts at midnight Pacific time by
+default (`ENRICHMENT_BUDGET_ZONE`), which is when Gemini's daily quota resets. Whatever a model returns is treated as untrusted and
 validated; summaries, tags and names are text, never HTML.
 
 ## Ingestion

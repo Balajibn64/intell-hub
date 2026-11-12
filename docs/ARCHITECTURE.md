@@ -98,7 +98,8 @@ A language model reads article text that anyone can write, so **whatever it retu
 - **Nothing a model returns is ever followed, fetched or executed.** No tools, no links followed, no instructions obeyed. Summaries, tags and names are rendered as text, never HTML.
 - **Everything is bounded and counted**: a persisted daily call budget (250 by default, 50 reserved for readers' requests, check and increment under an advisory lock), at most three attempts per article, batch size five, exponential backoff, no overlapping runs.
 - **Nothing from an article or a model is logged**: counts and exception class names only.
-- Prompt-level defences (delimited blocks, instructions) are added with the real prompts in M6; this validation layer is what makes them defence in depth rather than the only defence.
+- **Prompt-level defences (M6)**: the task and rules are in the system message, each article sits in its own numbered block (`<<<ARTICLE N>>> ... <<<END>>>`) and the marker characters are stripped from article text so an article cannot close or fake a block; the model is told the blocks are data. This is best effort: the validation layer above is the real control.
+- **Real providers (M6)** are `GeminiSummarizer` (generateContent, JSON schema output) and `GroqSummarizer` (chat completions, strict JSON schema), both only moving data through one `ProviderHttp`: https only (plain http for the local machine in tests), keys in a header and never in an address, redirects never followed, bounded time and reply size, errors are fixed texts that never contain the key, the request or the provider's body. The chain tries them in the order of `ENRICHMENT_PROVIDER`; a 429 carries the provider's retry hint into the worker's backoff.
 
 ## 6. Key design decisions
 | Concern | Decision |
