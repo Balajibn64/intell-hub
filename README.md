@@ -48,7 +48,7 @@ source instead), and disabling is the normal way to stop one.
 
 Source types and the one address each may use: `RSS` any public http(s) feed (credentials, `localhost`, private
 and link-local addresses and numeric IP tricks are rejected); `HN` exactly
-`https://hn.algolia.com/api/v1/search?tags=front_page`; `HUGGINGFACE` exactly
+`https://hn.algolia.com/api/v1/search?tags=front_page&hitsPerPage=30`; `HUGGINGFACE` exactly
 `https://huggingface.co/api/daily_papers`; `GITHUB_RELEASES` `https://github.com/<owner>/<repo>/releases.atom`;
 `ARXIV` `https://rss.arxiv.org/rss/<category>` (or `/atom/`, for example `cs.AI`). Settings in `config`:
 `maxEntries` (1 to 100, most entries taken per fetch, for any type) and, for `HN`, `minPoints` (0 to 1000,

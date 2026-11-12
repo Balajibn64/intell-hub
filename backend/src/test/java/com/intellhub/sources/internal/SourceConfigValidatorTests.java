@@ -53,7 +53,8 @@ class SourceConfigValidatorTests {
 			assertThat(problem(type, java.util.Map.of("maxEntries", 100))).isNull();
 			assertThat(problem(type, java.util.Map.of("maxEntries", 25L))).isNull();
 			assertThat(problem(type, java.util.Map.of())).isNull();
-			for (Object bad : new Object[] { 0, 101, -5, 2.5, "25", true, java.util.List.of(1), java.util.Map.of(), Integer.MAX_VALUE }) {
+			for (Object bad : new Object[] { 0, 101, -5, 2.5, "25", true, java.util.List.of(1), java.util.Map.of(), Integer.MAX_VALUE,
+					new java.math.BigInteger("18446744073709551621"), new java.math.BigInteger("5") }) {
 				assertThat(problem(type, java.util.Map.of("maxEntries", bad))).as(String.valueOf(bad)).isNotNull();
 			}
 			java.util.Map<String, Object> withNull = new java.util.HashMap<>();

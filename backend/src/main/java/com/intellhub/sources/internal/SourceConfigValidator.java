@@ -59,8 +59,8 @@ final class SourceConfigValidator {
 		if (value == null && !config.containsKey(key)) {
 			return null;
 		}
-		boolean whole = value instanceof Integer || value instanceof Long || value instanceof Short || value instanceof Byte
-				|| value instanceof java.math.BigInteger;
+		// Not BigInteger: a number too big for a long has no place in these bounds, and longValue() would wrap it.
+		boolean whole = value instanceof Integer || value instanceof Long || value instanceof Short || value instanceof Byte;
 		if (!whole || ((Number) value).longValue() < min || ((Number) value).longValue() > max) {
 			return key + " must be a whole number from " + min + " to " + max;
 		}

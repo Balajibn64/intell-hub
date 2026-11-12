@@ -5,7 +5,7 @@
   { "type": "RSS", "name": "GitHub Engineering", "url": "https://github.blog/engineering/feed/" },
   { "type": "RSS", "name": "Hugging Face Blog", "url": "https://huggingface.co/blog/feed.xml" },
   { "type": "RSS", "name": "The Pragmatic Engineer", "url": "https://blog.pragmaticengineer.com/rss/" },
-  { "type": "HN", "name": "Hacker News (front page)", "url": "https://hn.algolia.com/api/v1/search?tags=front_page", "config": { "minPoints": 50, "maxEntries": 30 } },
+  { "type": "HN", "name": "Hacker News (front page)", "url": "https://hn.algolia.com/api/v1/search?tags=front_page&hitsPerPage=30", "config": { "minPoints": 50, "maxEntries": 30 } },
   { "type": "HUGGINGFACE", "name": "Hugging Face Daily Papers", "url": "https://huggingface.co/api/daily_papers", "config": { "maxEntries": 20 } },
   { "type": "ARXIV", "name": "arXiv cs.AI", "url": "https://rss.arxiv.org/rss/cs.AI", "config": { "maxEntries": 25 } },
   { "type": "ARXIV", "name": "arXiv cs.SE", "url": "https://rss.arxiv.org/rss/cs.SE", "config": { "maxEntries": 25 } },

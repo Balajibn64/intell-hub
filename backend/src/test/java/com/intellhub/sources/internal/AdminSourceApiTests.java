@@ -92,7 +92,7 @@ class AdminSourceApiTests {
 
 	@Test
 	void eachTypeCanOnlyBeCreatedForItsOwnAddressAndWithValidSettings() throws Exception {
-		String[][] good = { { "HN", "https://hn.algolia.com/api/v1/search?tags=front_page" },
+		String[][] good = { { "HN", "https://hn.algolia.com/api/v1/search?tags=front_page&hitsPerPage=30" },
 				{ "HUGGINGFACE", "https://huggingface.co/api/daily_papers" },
 				{ "GITHUB_RELEASES", "https://github.com/ollama/ollama/releases.atom" }, { "ARXIV", "https://rss.arxiv.org/rss/cs.AI" } };
 		for (String[] g : good) {

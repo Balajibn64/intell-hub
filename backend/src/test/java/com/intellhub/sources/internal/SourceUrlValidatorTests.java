@@ -52,14 +52,14 @@ class SourceUrlValidatorTests {
 
 	@Test
 	void hackerNewsOnlyAcceptsTheAlgoliaFrontPage() {
-		assertThat(accepts(SourceType.HN, "https://hn.algolia.com/api/v1/search?tags=front_page")).isTrue();
-		assertThat(accepts(SourceType.HN, "HTTPS://HN.ALGOLIA.COM/api/v1/search?tags=front_page")).isTrue(); // normalized first
-		for (String bad : new String[] { "https://hn.algolia.com/api/v1/search?tags=story", "https://hn.algolia.com/api/v1/search",
-				"https://hn.algolia.com/api/v1/search?tags=front_page&query=x", "http://hn.algolia.com/api/v1/search?tags=front_page",
-				"https://hn.algolia.com.evil.example/api/v1/search?tags=front_page", "https://evil.example/api/v1/search?tags=front_page",
-				"https://hn.algolia.com:8443/api/v1/search?tags=front_page", "https://user@hn.algolia.com/api/v1/search?tags=front_page",
-				"https://hn.algolia.com/api/v1/search?tags=front_page#x", "https://news.ycombinator.com/rss",
-				"https://hn.algolia.com/api/v1/../v1/search?tags=front_page" }) {
+		assertThat(accepts(SourceType.HN, "https://hn.algolia.com/api/v1/search?tags=front_page&hitsPerPage=30")).isTrue();
+		assertThat(accepts(SourceType.HN, "HTTPS://HN.ALGOLIA.COM/api/v1/search?tags=front_page&hitsPerPage=30")).isTrue(); // normalized first
+		for (String bad : new String[] { "https://hn.algolia.com/api/v1/search?tags=story&hitsPerPage=30", "https://hn.algolia.com/api/v1/search",
+				"https://hn.algolia.com/api/v1/search?tags=front_page&hitsPerPage=30&query=x", "http://hn.algolia.com/api/v1/search?tags=front_page&hitsPerPage=30",
+				"https://hn.algolia.com.evil.example/api/v1/search?tags=front_page&hitsPerPage=30", "https://evil.example/api/v1/search?tags=front_page&hitsPerPage=30",
+				"https://hn.algolia.com:8443/api/v1/search?tags=front_page&hitsPerPage=30", "https://user@hn.algolia.com/api/v1/search?tags=front_page&hitsPerPage=30",
+				"https://hn.algolia.com/api/v1/search?tags=front_page&hitsPerPage=30#x", "https://news.ycombinator.com/rss",
+				"https://hn.algolia.com/api/v1/../v1/search?tags=front_page&hitsPerPage=30" }) {
 			assertThat(accepts(SourceType.HN, bad)).as(bad).isFalse();
 		}
 	}
@@ -96,6 +96,9 @@ class SourceUrlValidatorTests {
 		assertThat(accepts(SourceType.ARXIV, "https://rss.arxiv.org/atom/cs.SE")).isTrue();
 		assertThat(accepts(SourceType.ARXIV, "https://rss.arxiv.org/rss/stat.ML")).isTrue();
 		assertThat(accepts(SourceType.ARXIV, "https://rss.arxiv.org/rss/cs")).isTrue();
+		for (String category : new String[] { "astro-ph", "hep-th", "cond-mat.mes-hall", "physics.acc-ph", "math.CO", "q-bio.NC", "eess.SP" }) {
+			assertThat(accepts(SourceType.ARXIV, "https://rss.arxiv.org/rss/" + category)).as(category).isTrue();
+		}
 		for (String bad : new String[] { "https://export.arxiv.org/api/query?search_query=cat:cs.AI", "https://arxiv.org/rss/cs.AI",
 				"https://rss.arxiv.org/json/cs.AI", "https://rss.arxiv.org/rss/cs.AI/extra", "https://rss.arxiv.org/rss/cs.AI?x=1",
 				"https://rss.arxiv.org/rss/../cs.AI", "https://rss.arxiv.org.evil.example/rss/cs.AI", "http://rss.arxiv.org/rss/cs.AI",

@@ -109,7 +109,7 @@ Base path `/api/v1`. JSON. Auth via `Authorization: Bearer <access JWT>`, except
 |---|---|---|
 | GET, POST | /api/v1/admin/users | List, create |
 | PATCH | /api/v1/admin/users/{id} | Change role or enabled |
-| GET, POST | /api/v1/admin/sources | List with health fields, create. Each type may only use its own address: `RSS` any public feed; `HN` exactly `https://hn.algolia.com/api/v1/search?tags=front_page`; `HUGGINGFACE` exactly `https://huggingface.co/api/daily_papers`; `GITHUB_RELEASES` `https://github.com/<owner>/<repo>/releases.atom`; `ARXIV` `https://rss.arxiv.org/(rss\|atom)/<category>`. Config: `maxEntries` 1-100 (all types), `minPoints` 0-1000 (HN). Errors: 400 `INVALID_SOURCE_URL` / `INVALID_SOURCE_CONFIG` / `VALIDATION_FAILED`, 409 `SOURCE_EXISTS` |
+| GET, POST | /api/v1/admin/sources | List with health fields, create. Each type may only use its own address: `RSS` any public feed; `HN` exactly `https://hn.algolia.com/api/v1/search?tags=front_page&hitsPerPage=30`; `HUGGINGFACE` exactly `https://huggingface.co/api/daily_papers`; `GITHUB_RELEASES` `https://github.com/<owner>/<repo>/releases.atom`; `ARXIV` `https://rss.arxiv.org/(rss\|atom)/<category>`. Config: `maxEntries` 1-100 (all types), `minPoints` 0-1000 (HN). Errors: 400 `INVALID_SOURCE_URL` / `INVALID_SOURCE_CONFIG` / `VALIDATION_FAILED`, 409 `SOURCE_EXISTS` |
 | PATCH, DELETE | /api/v1/admin/sources/{id} | PATCH changes only `name`, `enabled` and `config`; `type` and `url` are fixed (any attempt to send them is ignored). DELETE is permanent, disabling is the normal way to stop a source. 404 `SOURCE_NOT_FOUND` |
 | GET | /api/v1/admin/status | Source health, enrichment status counts, LLM budget used today |
 

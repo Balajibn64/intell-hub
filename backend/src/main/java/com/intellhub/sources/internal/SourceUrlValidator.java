@@ -1,9 +1,9 @@
 package com.intellhub.sources.internal;
 
 import com.intellhub.shared.ApiException;
+import com.intellhub.shared.PublicUrlPolicy;
 import com.intellhub.sources.SourceType;
 import java.util.regex.Pattern;
-import com.intellhub.shared.PublicUrlPolicy;
 import org.springframework.http.HttpStatus;
 
 /**
@@ -18,7 +18,7 @@ final class SourceUrlValidator {
 	}
 
 	/** The only address a Hacker News source may use (Algolia's HN API, the front page). */
-	static final String HN_URL = "https://hn.algolia.com/api/v1/search?tags=front_page";
+	static final String HN_URL = "https://hn.algolia.com/api/v1/search?tags=front_page&hitsPerPage=30";
 
 	/** The only address a Hugging Face source may use (the daily papers list). */
 	static final String HUGGINGFACE_URL = "https://huggingface.co/api/daily_papers";
@@ -26,7 +26,7 @@ final class SourceUrlValidator {
 	private static final Pattern GITHUB_RELEASES = Pattern
 			.compile("^https://github\\.com/[A-Za-z0-9_.-]{1,39}/[A-Za-z0-9_.-]{1,100}/releases\\.atom$");
 
-	private static final Pattern ARXIV = Pattern.compile("^https://rss\\.arxiv\\.org/(rss|atom)/[A-Za-z]{2,10}(\\.[A-Za-z]{1,10})?$");
+	private static final Pattern ARXIV = Pattern.compile("^https://rss\\.arxiv\\.org/(rss|atom)/[A-Za-z]{1,12}(-[A-Za-z]{2,10})?(\\.[A-Za-z-]{1,15})?$");
 
 	/** @throws ApiException with status 400 and code INVALID_SOURCE_URL when the URL is not acceptable */
 	static void validate(String url) {

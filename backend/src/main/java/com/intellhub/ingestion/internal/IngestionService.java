@@ -13,9 +13,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.EnumMap;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.ExecutionException;
@@ -50,7 +48,7 @@ class IngestionService {
 
 	private final SafeHttpFetcher fetcher;
 
-	private final Map<SourceType, SourceParser> parsers = new EnumMap<>(SourceType.class);
+	private final ParserRegistry parsers;
 
 	private final ContentSanitizer sanitizer;
 
@@ -60,16 +58,12 @@ class IngestionService {
 
 	private final AtomicBoolean running = new AtomicBoolean();
 
-	IngestionService(SourceCatalog sources, ArticleStore articles, SafeHttpFetcher fetcher, List<SourceParser> parsers,
+	IngestionService(SourceCatalog sources, ArticleStore articles, SafeHttpFetcher fetcher, ParserRegistry parsers,
 			ContentSanitizer sanitizer, IngestionProperties properties, Clock clock) {
 		this.sources = sources;
 		this.articles = articles;
 		this.fetcher = fetcher;
-		for (SourceParser parser : parsers) {
-			for (SourceType type : parser.types()) {
-				this.parsers.put(type, parser);
-			}
-		}
+		this.parsers = parsers;
 		this.sanitizer = sanitizer;
 		this.properties = properties;
 		this.clock = clock;
@@ -158,7 +152,7 @@ class IngestionService {
 	}
 
 	private SourceResult processSource(SourceInfo source, AtomicBoolean stopped) {
-		if (!parsers.containsKey(source.type())) {
+		if (parsers.forType(source.type()) == null) {
 			return SourceResult.unsupported(source.id(), source.name());
 		}
 		try {
@@ -180,7 +174,7 @@ class IngestionService {
 		Instant now = clock.instant();
 		ParsedFeed feed;
 		try {
-			feed = parsers.get(source.type()).parse(source, body,
+			feed = parsers.forType(source.type()).parse(source, body,
 					new ParseLimits(entryLimit(source), now.minus(properties.maxAge())));
 		}
 		catch (FeedParseException e) {
