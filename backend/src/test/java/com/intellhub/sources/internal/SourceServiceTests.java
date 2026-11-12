@@ -145,6 +145,17 @@ class SourceServiceTests {
 	}
 
 	@Test
+	void namesAreLookedUpInOneGoAndUnknownIdsAreSimplyAbsent() {
+		Source a = rss("Alpha", "https://a.example/feed");
+		Source b = rss("Beta", "https://b.example/feed");
+
+		assertThat(catalog.names(List.of(a.getId(), b.getId(), UUID.randomUUID()))).containsOnly(
+				Map.entry(a.getId(), "Alpha"), Map.entry(b.getId(), "Beta"));
+		assertThat(catalog.names(List.of())).isEmpty();
+		assertThat(catalog.names(null)).isEmpty();
+	}
+
+	@Test
 	void aSuccessfulFetchRecordsTheTimeAndClearsTheFailures() {
 		Source created = rss("A", "https://example.com/feed");
 		catalog.recordFetchResult(created.getId(), FetchResult.failed("timeout"));
