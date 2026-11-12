@@ -63,7 +63,7 @@ class RetentionService {
 		this.transaction = new TransactionTemplate(transactionManager);
 	}
 
-	/** The result of the most recent run since the app started, if any. */
+	/** The result of the most recent real (not dry) run since the app started, if any. */
 	Optional<RetentionResult> lastRun() {
 		return Optional.ofNullable(lastRun);
 	}
@@ -89,35 +89,49 @@ class RetentionService {
 		long started = System.nanoTime();
 		Instant now = clock.instant();
 		Instant cutoff = now.minus(properties.window());
+		// Tokens first: it is one cheap statement and does not depend on the articles, so a failing article batch can
+		// never keep expired tokens from being cleaned up night after night.
+		long tokensDeleted = dryRun ? 0 : tokens.purgeExpiredRefreshTokens(now.minus(properties.tokenGrace()));
 		long expired = 0;
 		long kept = 0;
 		long deleted = 0;
 		UUID after = null;
-		while (true) {
-			UUID cursor = after;
-			Batch batch = transaction.execute(status -> purgeBatch(cutoff, cursor, dryRun));
-			if (batch.ids().isEmpty()) {
-				break;
-			}
-			expired += batch.ids().size();
-			kept += batch.kept();
-			deleted += batch.deleted();
-			after = batch.ids().get(batch.ids().size() - 1);
-			if (batch.ids().size() < properties.batchSize()) {
-				break;
+		try {
+			while (true) {
+				UUID cursor = after;
+				Batch batch = transaction.execute(status -> purgeBatch(cutoff, cursor, dryRun));
+				if (batch.ids().isEmpty()) {
+					break;
+				}
+				expired += batch.ids().size();
+				kept += batch.kept();
+				deleted += batch.deleted();
+				after = batch.ids().get(batch.ids().size() - 1);
+				if (batch.ids().size() < properties.batchSize()) {
+					break;
+				}
 			}
 		}
-		long tokensDeleted = dryRun ? 0 : tokens.purgeExpiredRefreshTokens(now.minus(properties.tokenGrace()));
+		catch (RuntimeException e) {
+			// Earlier batches are already committed; say how far the run got (counts only), then let it fail.
+			log.warn("Retention {} failed after {} expired articles looked at, {} deleted, {} expired tokens deleted: {}",
+					dryRun ? "dry run" : "purge", expired, deleted, tokensDeleted, e.getClass().getSimpleName());
+			throw e;
+		}
 		RetentionResult result = new RetentionResult(dryRun, expired, kept, deleted, tokensDeleted,
 				(System.nanoTime() - started) / 1_000_000, clock.instant());
-		lastRun = result;
+		if (!dryRun) {
+			lastRun = result; // a dry run must not hide what the last real purge did
+		}
 		log.info("Retention {}: {} expired articles, {} kept because saved, {} deleted, {} expired tokens deleted, {} ms",
 				dryRun ? "dry run" : "purge", expired, kept, deleted, tokensDeleted, result.durationMillis());
 		return result;
 	}
 
 	private Batch purgeBatch(Instant cutoff, UUID after, boolean dryRun) {
-		List<UUID> ids = articles.lockExpired(cutoff, after, properties.batchSize());
+		// A dry run only reads: it must not lock articles and make a reader's save wait.
+		List<UUID> ids = dryRun ? articles.listExpired(cutoff, after, properties.batchSize())
+				: articles.lockExpired(cutoff, after, properties.batchSize());
 		if (ids.isEmpty()) {
 			return new Batch(ids, 0, 0);
 		}

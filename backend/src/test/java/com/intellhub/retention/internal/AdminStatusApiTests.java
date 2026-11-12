@@ -111,10 +111,14 @@ class AdminStatusApiTests {
 
 	@Test
 	void thePageShowsTheLastPurgeOnceOneHasRun() throws Exception {
-		mvc.perform(post("/api/v1/admin/retention/purge").with(ADMIN)).andExpect(status().isOk());
+		mvc.perform(post("/api/v1/admin/retention/purge?dryRun=false").with(ADMIN)).andExpect(status().isOk());
 
-		mvc.perform(get(URL).with(ADMIN)).andExpect(status().isOk()).andExpect(jsonPath("$.retention.lastRun.dryRun").value(true))
+		mvc.perform(get(URL).with(ADMIN)).andExpect(status().isOk()).andExpect(jsonPath("$.retention.lastRun.dryRun").value(false))
 				.andExpect(jsonPath("$.retention.lastRun.articlesExpired").isNumber()).andExpect(jsonPath("$.retention.lastRun.finishedAt").exists());
+
+		// A dry run afterwards does not replace it.
+		mvc.perform(post("/api/v1/admin/retention/purge").with(ADMIN)).andExpect(status().isOk());
+		mvc.perform(get(URL).with(ADMIN)).andExpect(jsonPath("$.retention.lastRun.dryRun").value(false));
 	}
 
 	@Test

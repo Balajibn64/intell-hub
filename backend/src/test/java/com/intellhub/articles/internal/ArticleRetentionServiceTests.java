@@ -98,6 +98,16 @@ class ArticleRetentionServiceTests {
 	}
 
 	@Test
+	void listingWithoutLockingNeedsNoTransactionAndSeesTheSameArticles() {
+		List<UUID> old = List.of(oldArticle(), oldArticle());
+		article(NOW.minus(Duration.ofDays(1)), "PENDING");
+
+		assertThat(retention.listExpired(NOW.minus(Duration.ofDays(7)), null, 100)).containsExactlyInAnyOrderElementsOf(old);
+		assertThat(retention.listExpired(NOW.minus(Duration.ofDays(7)), old.get(0), 100)).doesNotContain(old.get(0));
+		assertThatThrownBy(() -> retention.listExpired(NOW, null, 0)).isInstanceOf(IllegalArgumentException.class);
+	}
+
+	@Test
 	void theCutoffIsExclusive() {
 		Instant cutoff = NOW.minus(Duration.ofDays(7));
 		UUID exactly = article(cutoff, "PENDING");

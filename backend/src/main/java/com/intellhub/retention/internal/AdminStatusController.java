@@ -66,12 +66,19 @@ class AdminStatusController {
 		EnrichmentSnapshot e = enrichment.snapshot();
 		return new Status(
 				new SourcesStatus(health.total(), health.enabled(), health.failing(), health.neverFetched(), health.sources()),
-				new ArticlesStatus(articles.total(), articles.countsByStatus(), articles.oldestPublishedAt().orElse(null)),
+				articlesStatus(),
 				new EnrichmentStatusView(e.enabled(), e.providers(), e.day(),
 						new Budget(e.dailyBudget(), e.reservedCalls(), e.usedToday(), e.remainingForReaders(), e.remainingForBackground()),
 						e.usageToday()),
 				new RetentionStatus(retention.properties().enabled(), retention.properties().window().toDays(),
 						retention.lastRun().orElse(null)));
+	}
+
+	/** The total is the sum of the per-status counts, so the page can never show a total that disagrees with them. */
+	private ArticlesStatus articlesStatus() {
+		Map<String, Long> byStatus = articles.countsByStatus();
+		long total = byStatus.values().stream().mapToLong(Long::longValue).sum();
+		return new ArticlesStatus(total, byStatus, articles.oldestPublishedAt().orElse(null));
 	}
 
 }

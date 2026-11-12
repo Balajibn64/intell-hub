@@ -33,18 +33,28 @@ class ArticleRetentionService implements ArticleRetention, ArticleStatistics {
 	@Override
 	@Transactional(propagation = Propagation.MANDATORY)
 	public List<UUID> lockExpired(Instant cutoff, UUID after, int limit) {
+		return select(cutoff, after, limit, true);
+	}
+
+	/** Both variants are fixed text; only the flag chooses whether the rows are locked. */
+	private List<UUID> select(Instant cutoff, UUID after, int limit, boolean lock) {
 		if (cutoff == null || limit < 1 || limit > MAX_BATCH) {
 			throw new IllegalArgumentException("invalid purge batch");
 		}
 		OffsetDateTime before = OffsetDateTime.ofInstant(cutoff, ZoneOffset.UTC);
+		String suffix = lock ? " for update" : "";
 		if (after == null) {
-			return jdbc.sql("select id from articles where published_at < :cutoff order by id limit :limit for update")
+			return jdbc.sql("select id from articles where published_at < :cutoff order by id limit :limit" + suffix)
 					.param("cutoff", before).param("limit", limit).query(UUID.class).list();
 		}
-		return jdbc.sql("""
-				select id from articles where published_at < :cutoff and id > :after
-				order by id limit :limit for update""")
+		return jdbc.sql("select id from articles where published_at < :cutoff and id > :after order by id limit :limit" + suffix)
 				.param("cutoff", before).param("after", after).param("limit", limit).query(UUID.class).list();
+	}
+
+	@Override
+	@Transactional(readOnly = true)
+	public List<UUID> listExpired(Instant cutoff, UUID after, int limit) {
+		return select(cutoff, after, limit, false);
 	}
 
 	@Override

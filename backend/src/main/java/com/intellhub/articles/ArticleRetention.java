@@ -23,6 +23,14 @@ public interface ArticleRetention {
 	List<UUID> lockExpired(Instant cutoff, UUID after, int limit);
 
 	/**
+	 * The same selection as {@link #lockExpired} but without locking and without needing a transaction, for a dry
+	 * run that deletes nothing and so must not make a reader's save wait.
+	 *
+	 * @throws IllegalArgumentException if the limit is not between 1 and 5000
+	 */
+	List<UUID> listExpired(Instant cutoff, UUID after, int limit);
+
+	/**
 	 * Deletes the given articles; their tag links and reading events go with them (the database cascades).
 	 * Returns how many were deleted.
 	 *

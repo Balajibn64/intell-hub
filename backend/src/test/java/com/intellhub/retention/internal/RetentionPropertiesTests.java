@@ -17,6 +17,10 @@ class RetentionPropertiesTests {
 		return new RetentionProperties(false, "0 30 3 * * *", window, batch, grace);
 	}
 
+	private static RetentionProperties enabledWith(Duration window) {
+		return new RetentionProperties(true, "0 30 3 * * *", window, 500, Duration.ofDays(1));
+	}
+
 	@Test
 	void theDefaultsAreValid() {
 		assertThat(validator.validate(with(Duration.ofDays(7), 500, Duration.ofDays(1)))).isEmpty();
@@ -48,8 +52,15 @@ class RetentionPropertiesTests {
 	}
 
 	@Test
+	void whenThePurgeIsOffAShortWindowOnlyWarnsAndStartupGoesOn() {
+		RetentionProperties off = with(Duration.ofDays(3), 500, Duration.ofDays(1));
+
+		new RetentionStartupCheck(off, new MockEnvironment()).afterPropertiesSet(); // no exception: nothing can purge by schedule
+	}
+
+	@Test
 	void theCheckReadsTheIngestionSettingFromTheEnvironmentAndDefaultsToSevenDays() {
-		RetentionProperties window5 = with(Duration.ofDays(5), 500, Duration.ofDays(1));
+		RetentionProperties window5 = enabledWith(Duration.ofDays(5));
 
 		assertThatThrownBy(() -> new RetentionStartupCheck(window5, new MockEnvironment()).afterPropertiesSet())
 				.isInstanceOf(IllegalStateException.class); // 5 days against the 7-day default

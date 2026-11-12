@@ -306,6 +306,50 @@ class RetentionServiceTests {
 	}
 
 	@Test
+	void aDryRunDoesNotReplaceWhatTheLastRealPurgeDid() {
+		RetentionService service = service();
+		old();
+		RetentionResult real = service.run(false);
+
+		RetentionResult dry = service.run(true);
+
+		assertThat(dry.dryRun()).isTrue();
+		assertThat(service.lastRun()).contains(real);
+	}
+
+	@Test
+	void anArticleBatchThatFailsStillLetsExpiredTokensBeCleanedAndTheFailureIsNotHidden() {
+		jdbc.update("""
+				insert into refresh_tokens (id, user_id, family_id, token_hash, expires_at, created_at)
+				values (?, ?, ?, 'hash-failing-run', now() - interval '10 days', now())""", UUID.randomUUID(), alice, UUID.randomUUID());
+		ArticleRetention broken = new ArticleRetention() {
+			@Override
+			public List<UUID> lockExpired(Instant cutoff, UUID after, int limit) {
+				throw new IllegalStateException("the database went away");
+			}
+
+			@Override
+			public List<UUID> listExpired(Instant cutoff, UUID after, int limit) {
+				throw new IllegalStateException("the database went away");
+			}
+
+			@Override
+			public int delete(java.util.Collection<UUID> ids) {
+				return 0;
+			}
+		};
+		RetentionService service = new RetentionService(broken, state, tokens,
+				new RetentionProperties(false, "0 30 3 * * *", Duration.ofDays(7), 500, Duration.ofDays(1)), clock, transactionManager);
+
+		assertThatThrownBy(() -> service.run(false)).isInstanceOf(IllegalStateException.class);
+
+		assertThat(jdbc.queryForObject("select count(*) from refresh_tokens", Integer.class)).isZero();
+		assertThat(service.lastRun()).isEmpty(); // a run that failed is not reported as a result
+		// and a failed run does not leave the guard stuck: the next run is allowed
+		assertThat(service().run(false)).isNotNull();
+	}
+
+	@Test
 	void twoRunsAtOnceAreRefusedNotInterleaved() throws Exception {
 		for (int i = 0; i < 300; i++) {
 			old();

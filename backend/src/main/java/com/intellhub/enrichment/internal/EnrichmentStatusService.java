@@ -19,15 +19,12 @@ class EnrichmentStatusService implements EnrichmentStatus {
 
 	private final EnrichmentProperties properties;
 
-	private final LlmBudget budget;
-
 	private final ProviderChain chain;
 
-	EnrichmentStatusService(JdbcClient jdbc, Clock clock, EnrichmentProperties properties, LlmBudget budget, ProviderChain chain) {
+	EnrichmentStatusService(JdbcClient jdbc, Clock clock, EnrichmentProperties properties, ProviderChain chain) {
 		this.jdbc = jdbc;
 		this.clock = clock;
 		this.properties = properties;
-		this.budget = budget;
 		this.chain = chain;
 	}
 
@@ -38,9 +35,11 @@ class EnrichmentStatusService implements EnrichmentStatus {
 		List<ProviderUsage> usage = jdbc.sql("select provider, calls, failures from llm_usage where day = :day order by provider")
 				.param("day", day)
 				.query((rs, n) -> new ProviderUsage(rs.getString("provider"), rs.getInt("calls"), rs.getInt("failures"))).list();
+		// Everything below comes from the one day and the one list of rows read above, so the page cannot mix two days.
+		int used = usage.stream().mapToInt(ProviderUsage::calls).sum();
 		return new EnrichmentSnapshot(properties.enabled(), chain.providerNames(), day, properties.dailyBudget(),
-				properties.reservedCalls(), budget.usedToday(), budget.remaining(BudgetPriority.RESERVED),
-				budget.remaining(BudgetPriority.NORMAL), usage);
+				properties.reservedCalls(), used, Math.max(0, properties.dailyBudget() - used),
+				Math.max(0, properties.dailyBudget() - properties.reservedCalls() - used), usage);
 	}
 
 }

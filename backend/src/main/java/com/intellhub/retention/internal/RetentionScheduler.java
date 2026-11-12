@@ -25,7 +25,7 @@ class RetentionScheduler {
 		this.retention = retention;
 	}
 
-	@Scheduled(cron = "${intellhub.retention.cron}")
+	@Scheduled(cron = "${intellhub.retention.cron}", zone = "${intellhub.retention.zone:UTC}")
 	void runScheduled() {
 		try {
 			retention.run(false);
