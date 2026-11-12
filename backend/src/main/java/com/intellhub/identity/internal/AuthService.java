@@ -43,8 +43,10 @@ class AuthService {
 	/**
 	 * @throws TooManyAttemptsException when the email or client address has failed too often
 	 * @return the tokens, or empty if the credentials are wrong or the account is disabled
+	 *
+	 * <p>Deliberately not transactional: BCrypt is slow, and a database connection must not be held
+	 * while it runs. The repository calls and the token issue each run in their own short transaction.
 	 */
-	@Transactional
 	Optional<AuthResult> login(String email, String password, String clientAddress) {
 		String emailKey = "email:" + normalizeEmail(email);
 		String addressKey = "ip:" + clientAddress;
@@ -52,17 +54,21 @@ class AuthService {
 		if (blocked.isPresent()) {
 			throw new TooManyAttemptsException(blocked.get());
 		}
+		// Reserve the attempt now; it is refunded below if the login succeeds.
+		limiter.recordAttempt(emailKey);
+		limiter.recordAttempt(addressKey);
 		Optional<User> found = users.findByEmail(normalizeEmail(email));
 		if (found.isEmpty()) {
 			passwords.burn(password);
-			return failed(emailKey, addressKey);
+			return Optional.empty();
 		}
 		User user = found.get();
 		boolean passwordOk = passwords.matches(password, user.getPasswordHash());
 		if (!passwordOk || !user.isEnabled()) {
-			return failed(emailKey, addressKey);
+			return Optional.empty();
 		}
 		limiter.reset(emailKey);
+		limiter.refund(addressKey);
 		return Optional.of(result(user.getId(), user.getRole(), refreshTokens.issueForLogin(user.getId())));
 	}
 
@@ -85,12 +91,6 @@ class AuthService {
 	@Transactional
 	void logout(String rawRefreshToken) {
 		refreshTokens.revokeFamilyOf(rawRefreshToken);
-	}
-
-	private Optional<AuthResult> failed(String emailKey, String addressKey) {
-		limiter.recordFailure(emailKey);
-		limiter.recordFailure(addressKey);
-		return Optional.empty();
 	}
 
 	private AuthResult result(UUID userId, Role role, IssuedRefreshToken refresh) {

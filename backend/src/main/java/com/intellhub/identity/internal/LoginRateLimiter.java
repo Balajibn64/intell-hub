@@ -11,7 +11,10 @@ import java.util.concurrent.ConcurrentHashMap;
 import org.springframework.stereotype.Component;
 
 /**
- * Sliding-window limiter for failed logins, keyed by email and by client address.
+ * Sliding-window limiter for login attempts, keyed by email and by client address.
+ *
+ * <p>An attempt is recorded <em>before</em> the slow password check and refunded on success, so a burst
+ * of parallel guesses cannot all slip past the limit while the first checks are still running.
  *
  * <p>In memory and per instance: it resets on restart and does not span several servers. That is
  * acceptable for a small single-instance deployment. Keys are capped so a flood of random emails
@@ -50,7 +53,8 @@ class LoginRateLimiter {
 		}
 	}
 
-	void recordFailure(String key) {
+	/** Counts an attempt against this key. */
+	void recordAttempt(String key) {
 		if (failures.size() >= MAX_KEYS) {
 			evictExpired();
 		}
@@ -63,6 +67,16 @@ class LoginRateLimiter {
 
 	void reset(String key) {
 		failures.remove(key);
+	}
+
+	/** Gives back the most recent attempt, for a login that turned out to be legitimate. */
+	void refund(String key) {
+		Deque<Instant> window = failures.get(key);
+		if (window != null) {
+			synchronized (window) {
+				window.pollLast();
+			}
+		}
 	}
 
 	private void prune(Deque<Instant> window) {

@@ -15,7 +15,7 @@ class LoginRateLimiterTests {
 	@Test
 	void notBlockedBelowTheLimit() {
 		for (int i = 0; i < 4; i++) {
-			limiter.recordFailure("email:a");
+			limiter.recordAttempt("email:a");
 		}
 
 		assertThat(limiter.blockedFor("email:a")).isEmpty();
@@ -24,7 +24,7 @@ class LoginRateLimiterTests {
 	@Test
 	void blockedAtTheLimitWithTimeUntilTheOldestFailureExpires() {
 		for (int i = 0; i < 5; i++) {
-			limiter.recordFailure("email:a");
+			limiter.recordAttempt("email:a");
 			clock.advance(Duration.ofMinutes(1));
 		}
 
@@ -34,7 +34,7 @@ class LoginRateLimiterTests {
 	@Test
 	void unblocksAfterTheWindowPasses() {
 		for (int i = 0; i < 5; i++) {
-			limiter.recordFailure("email:a");
+			limiter.recordAttempt("email:a");
 		}
 		clock.advance(Duration.ofMinutes(16));
 
@@ -44,7 +44,7 @@ class LoginRateLimiterTests {
 	@Test
 	void keysAreIndependent() {
 		for (int i = 0; i < 5; i++) {
-			limiter.recordFailure("email:a");
+			limiter.recordAttempt("email:a");
 		}
 
 		assertThat(limiter.blockedFor("email:a")).isPresent();
@@ -52,9 +52,22 @@ class LoginRateLimiterTests {
 	}
 
 	@Test
+	void refundGivesBackTheMostRecentAttempt() {
+		for (int i = 0; i < 5; i++) {
+			limiter.recordAttempt("ip:1");
+		}
+		assertThat(limiter.blockedFor("ip:1")).isPresent();
+
+		limiter.refund("ip:1");
+
+		assertThat(limiter.blockedFor("ip:1")).isEmpty();
+		limiter.refund("ip:never-seen");
+	}
+
+	@Test
 	void resetClearsTheFailures() {
 		for (int i = 0; i < 5; i++) {
-			limiter.recordFailure("email:a");
+			limiter.recordAttempt("email:a");
 		}
 		limiter.reset("email:a");
 

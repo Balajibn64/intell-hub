@@ -146,6 +146,54 @@ class AuthServiceTests {
 	}
 
 	@Test
+	void successfulLoginsAreNeverThrottled() {
+		createUser(Role.USER);
+
+		for (int i = 0; i < 12; i++) {
+			assertThat(auth.login(email, PASSWORD, address)).isPresent();
+		}
+	}
+
+	@Test
+	void aBurstOfParallelGuessesIsStoppedNearTheLimit() throws Exception {
+		createUser(Role.USER);
+		int threads = 40;
+		CountDownLatch ready = new CountDownLatch(threads);
+		CountDownLatch go = new CountDownLatch(1);
+		ExecutorService pool = Executors.newFixedThreadPool(threads);
+		try {
+			List<Future<Boolean>> futures = new ArrayList<>();
+			for (int i = 0; i < threads; i++) {
+				Callable<Boolean> guess = () -> {
+					ready.countDown();
+					go.await();
+					try {
+						auth.login(email, "wrong-password-123", address);
+						return true; // got as far as the password check
+					}
+					catch (TooManyAttemptsException blocked) {
+						return false;
+					}
+				};
+				futures.add(pool.submit(guess));
+			}
+			ready.await();
+			go.countDown();
+			int checked = 0;
+			for (Future<Boolean> future : futures) {
+				if (future.get()) {
+					checked++;
+				}
+			}
+			// The limit is 5. Allow slack for a few threads that race past the check, but far fewer than 40.
+			assertThat(checked).isBetween(5, 15);
+		}
+		finally {
+			pool.shutdownNow();
+		}
+	}
+
+	@Test
 	void refreshRotatesTheTokenAndTheOldOneIsThenAReplay() {
 		createUser(Role.ADMIN);
 		AuthResult first = loginOrFail();
