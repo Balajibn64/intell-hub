@@ -22,8 +22,17 @@ final class Weights {
 	 * The faded learned weight as a SQL expression over {@code learned_weight} and {@code updated_at}, with the
 	 * current time as the named parameter {@code now}. Fixed text: nothing from a caller is ever part of it.
 	 */
-	static final String FADED_LEARNED = "(learned_weight * power(0.5, greatest(extract(epoch from (:now - updated_at)), 0) / "
-			+ "(" + HALF_LIFE_DAYS + " * 86400.0)))";
+	static final String FADED_LEARNED = fadedLearned("");
+
+	/**
+	 * The same expression with the columns qualified by a table name, for statements where an unqualified column
+	 * would be ambiguous (the update part of an upsert). The qualifier is always a fixed constant.
+	 */
+	static String fadedLearned(String qualifier) {
+		String prefix = qualifier.isEmpty() ? "" : qualifier + ".";
+		return "(" + prefix + "learned_weight * power(0.5, greatest(extract(epoch from (:now - " + prefix
+				+ "updated_at)), 0) / (" + HALF_LIFE_DAYS + " * 86400.0)))";
+	}
 
 	private Weights() {
 	}
