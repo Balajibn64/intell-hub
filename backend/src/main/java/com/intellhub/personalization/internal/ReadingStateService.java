@@ -1,5 +1,6 @@
 package com.intellhub.personalization.internal;
 
+import com.intellhub.articles.ArticleCatalog;
 import com.intellhub.personalization.ReadingState;
 import java.time.Clock;
 import java.time.OffsetDateTime;
@@ -30,9 +31,12 @@ class ReadingStateService implements ReadingState {
 
 	private final Clock clock;
 
-	ReadingStateService(JdbcClient jdbc, Clock clock) {
+	private final ArticleCatalog articles;
+
+	ReadingStateService(JdbcClient jdbc, Clock clock, ArticleCatalog articles) {
 		this.jdbc = jdbc;
 		this.clock = clock;
+		this.articles = articles;
 	}
 
 	@Override
@@ -103,6 +107,51 @@ class ReadingStateService implements ReadingState {
 				values (:id, :user, :article, :type, :now)""")
 				.param("id", UUID.randomUUID()).param("user", userId).param("article", articleId)
 				.param("type", type).param("now", now()).update();
+		learn(userId, articleId, switch (type) {
+			case CLICK -> Weights.CLICK_STEP;
+			case SAVE -> Weights.SAVE_STEP;
+			default -> Weights.UNSAVE_STEP;
+		});
+	}
+
+	/**
+	 * Nudges the user's learned weight for every tag of the article, in the same transaction as the event, so a
+	 * recorded event and its effect never come apart. Each tag is one atomic statement: the stored weight is
+	 * faded to now, the step is added, and the result is kept between 0 and 1. One user's weight changes are
+	 * serialized by a per-user lock, so they can never deadlock; other users are unaffected.
+	 */
+	private void learn(UUID userId, UUID articleId, double step) {
+		List<UUID> tagIds = articles.tagIdsOf(articleId).stream().sorted().toList();
+		if (tagIds.isEmpty()) {
+			return;
+		}
+		// The same per-user lock the interests replacement takes: a click that inserts a new row and a replacement
+		// that holds the old ones would otherwise wait on each other.
+		jdbc.sql("select pg_advisory_xact_lock(hashtextextended(:key, 0))").param("key", Weights.lockKey(userId)).query()
+				.singleRow();
+		for (UUID tagId : tagIds) {
+			if (step > 0) {
+				jdbc.sql("""
+						insert into user_tag_weights (user_id, tag_id, explicit_weight, learned_weight, updated_at)
+						values (:user, :tag, 0, least(1, :step), :now)
+						on conflict (user_id, tag_id) do update
+						set learned_weight = greatest(0, least(1, %s + :step)), updated_at = :now"""
+						.formatted(Weights.fadedLearned("user_tag_weights")))
+						.param("user", userId).param("tag", tagId).param("step", step).param("now", now()).update();
+			}
+			else {
+				jdbc.sql("""
+						update user_tag_weights set learned_weight = greatest(0, least(1, %s + :step)), updated_at = :now
+						where user_id = :user and tag_id = :tag""".formatted(Weights.FADED_LEARNED))
+						.param("user", userId).param("tag", tagId).param("step", step).param("now", now()).update();
+			}
+		}
+		if (step < 0 && !tagIds.isEmpty()) {
+			jdbc.sql("""
+					delete from user_tag_weights
+					where user_id = :user and tag_id in (:tags) and explicit_weight = 0 and learned_weight = 0""")
+					.param("user", userId).param("tags", tagIds).update();
+		}
 	}
 
 	private OffsetDateTime now() {

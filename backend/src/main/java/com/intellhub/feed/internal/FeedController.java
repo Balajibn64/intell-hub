@@ -5,12 +5,14 @@ import com.intellhub.articles.EnrichmentRequests;
 import com.intellhub.articles.ArticleFilter;
 import com.intellhub.articles.ArticlePage;
 import com.intellhub.articles.ArticleView;
+import com.intellhub.articles.Ranking;
 import com.intellhub.feed.internal.FeedResponses.ArticleDetail;
 import com.intellhub.feed.internal.FeedResponses.FeedItem;
 import com.intellhub.feed.internal.FeedResponses.FeedPage;
 import com.intellhub.feed.internal.FeedResponses.TagItem;
 import com.intellhub.identity.CurrentUser;
 import com.intellhub.personalization.ReadingState;
+import com.intellhub.personalization.UserInterests;
 import com.intellhub.shared.ApiException;
 import com.intellhub.sources.SourceCatalog;
 import java.util.HashSet;
@@ -36,6 +38,10 @@ class FeedController {
 
 	private static final int DEFAULT_PAGE_SIZE = 20;
 
+	private static final String SORT_RELEVANCE = "relevance";
+
+	private static final String SORT_NEWEST = "newest";
+
 	private final ArticleCatalog articles;
 
 	private final ReadingState readingState;
@@ -44,7 +50,11 @@ class FeedController {
 
 	private final EnrichmentRequests enrichment;
 
-	FeedController(ArticleCatalog articles, ReadingState readingState, SourceCatalog sources, EnrichmentRequests enrichment) {
+	private final UserInterests interests;
+
+	FeedController(ArticleCatalog articles, ReadingState readingState, SourceCatalog sources, EnrichmentRequests enrichment,
+			UserInterests interests) {
+		this.interests = interests;
 		this.articles = articles;
 		this.readingState = readingState;
 		this.sources = sources;
@@ -55,13 +65,16 @@ class FeedController {
 	FeedPage feed(CurrentUser user, @RequestParam(defaultValue = "0") int page,
 			@RequestParam(defaultValue = "" + DEFAULT_PAGE_SIZE) int size, @RequestParam(required = false) String q,
 			@RequestParam(required = false) UUID source, @RequestParam(required = false) String category,
-			@RequestParam(required = false) String tag, @RequestParam(defaultValue = "false") boolean saved) {
-		validate(page, size, q, category, tag);
+			@RequestParam(required = false) String tag, @RequestParam(defaultValue = "false") boolean saved,
+			@RequestParam(defaultValue = SORT_RELEVANCE) String sort) {
+		validate(page, size, q, category, tag, sort);
 
 		Set<UUID> onlyIds = saved ? new HashSet<>(readingState.savedArticleIds(user.id())) : null;
 		ArticlePage result;
 		try {
-			result = articles.search(new ArticleFilter(q, source, category, tag, onlyIds), page, size);
+			// Ranked for this reader (their own weights, from the verified token's user id), or plain newest first.
+			Ranking ranking = SORT_RELEVANCE.equals(sort) ? new Ranking(interests.rankingWeights(user.id())) : null;
+			result = articles.search(new ArticleFilter(q, source, category, tag, onlyIds, ranking), page, size);
 		}
 		catch (IllegalArgumentException e) {
 			// The catalog is the authority on limits; if it is stricter than the checks above, still answer 400.
@@ -100,7 +113,10 @@ class FeedController {
 		return ArticleDetail.of(article, sourceName, saved);
 	}
 
-	private static void validate(int page, int size, String q, String category, String tag) {
+	private static void validate(int page, int size, String q, String category, String tag, String sort) {
+		if (!SORT_RELEVANCE.equals(sort) && !SORT_NEWEST.equals(sort)) {
+			throw invalid("sort must be " + SORT_RELEVANCE + " or " + SORT_NEWEST);
+		}
 		if (page < 0 || page > ArticleCatalog.MAX_PAGE) {
 			throw invalid("page must be between 0 and " + ArticleCatalog.MAX_PAGE);
 		}

@@ -5,8 +5,8 @@ import java.util.Set;
 import java.util.UUID;
 
 /**
- * The articles module's published API for reading. Results are always newest first, with the id as a tie
- * breaker so equal timestamps never reorder between requests.
+ * The articles module's published API for reading. Results are newest first unless the filter carries a
+ * {@link Ranking}; either way the id is a tie breaker so equal values never reorder between requests.
  */
 public interface ArticleCatalog {
 
@@ -42,5 +42,14 @@ public interface ArticleCatalog {
 	 * @throws IllegalArgumentException if the limit is out of range
 	 */
 	java.util.List<TagView> tags(int limit);
+
+	/** The ids of the tags that exist among the given names (unknown names are simply absent from the result). */
+	java.util.Map<String, UUID> tagIds(java.util.Collection<String> names);
+
+	/** The names of the given tags (unknown ids are absent from the result). */
+	java.util.Map<UUID, String> tagNames(java.util.Collection<UUID> ids);
+
+	/** The ids of the tags an article carries; empty if it has none or does not exist. */
+	java.util.List<UUID> tagIdsOf(UUID articleId);
 
 }

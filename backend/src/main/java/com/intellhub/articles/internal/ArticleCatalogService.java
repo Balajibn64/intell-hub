@@ -4,11 +4,14 @@ import com.intellhub.articles.ArticleCatalog;
 import com.intellhub.articles.ArticleFilter;
 import com.intellhub.articles.ArticlePage;
 import com.intellhub.articles.ArticleView;
+import com.intellhub.articles.Ranking;
 import com.intellhub.articles.TagView;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.time.Clock;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -28,8 +31,34 @@ class ArticleCatalogService implements ArticleCatalog {
 
 	private final JdbcClient jdbc;
 
-	ArticleCatalogService(JdbcClient jdbc) {
+	private final Clock clock;
+
+	ArticleCatalogService(JdbcClient jdbc, Clock clock) {
 		this.jdbc = jdbc;
+		this.clock = clock;
+	}
+
+	private OffsetDateTime rankingNow() {
+		OffsetDateTime now = OffsetDateTime.now(clock);
+		return now.truncatedTo(java.time.temporal.ChronoUnit.MINUTES).minusMinutes(now.getMinute() % 5);
+	}
+
+	/** At most 100 weights, with valid names and sensible numbers; zero weights add nothing and are dropped. */
+	private static List<Map.Entry<String, Double>> checkedWeights(Ranking ranking) {
+		if (ranking.tagWeights().size() > Ranking.MAX_TAGS) {
+			throw new IllegalArgumentException("too many ranking tags");
+		}
+		List<Map.Entry<String, Double>> weights = new ArrayList<>();
+		for (Map.Entry<String, Double> e : ranking.tagWeights().entrySet()) {
+			double w = e.getValue() == null ? Double.NaN : e.getValue();
+			if (e.getKey() == null || !TAG_NAME.matcher(e.getKey()).matches() || !(w >= 0 && w <= Ranking.MAX_WEIGHT)) {
+				throw new IllegalArgumentException("invalid ranking weight");
+			}
+			if (w > 0) {
+				weights.add(Map.entry(e.getKey(), w));
+			}
+		}
+		return weights;
 	}
 
 	@Override
@@ -75,10 +104,23 @@ class ArticleCatalogService implements ArticleCatalog {
 		}
 
 		long total = bind(jdbc.sql("select count(*) from articles" + where), query, f).query(Long.class).single();
-		List<ArticleView> items = bind(jdbc.sql("select " + ArticleSql.COLUMNS + " from articles" + where
-				+ " order by published_at desc, id desc limit :limit offset :offset"), query, f)
-				.param("limit", size).param("offset", (long) page * size)
-				.query(LIST_ROWS).list();
+		List<ArticleView> items;
+		if (f.ranking() == null) {
+			items = bind(jdbc.sql("select " + ArticleSql.COLUMNS + " from articles" + where
+					+ " order by published_at desc, id desc limit :limit offset :offset"), query, f)
+					.param("limit", size).param("offset", (long) page * size)
+					.query(LIST_ROWS).list();
+		}
+		else {
+			List<Map.Entry<String, Double>> weights = checkedWeights(f.ranking());
+			// "Now" is rounded down to five minutes, so consecutive page requests rank by the same time and a reader
+			// paging through does not see articles swap places from one page to the next.
+			items = RankingSql.bindWeights(bind(jdbc.sql("select " + ArticleSql.COLUMNS + " from articles"
+					+ RankingSql.affinityJoin(weights.size()) + where + " order by " + RankingSql.SCORE
+					+ " desc, published_at desc, id desc limit :limit offset :offset"), query, f), weights)
+					.param("now", rankingNow()).param("limit", size).param("offset", (long) page * size)
+					.query(LIST_ROWS).list();
+		}
 		return new ArticlePage(withTags(items), page, size, total);
 	}
 
@@ -104,6 +146,39 @@ class ArticleCatalogService implements ArticleCatalog {
 				limit :limit""")
 				.param("limit", limit)
 				.query((rs, n) -> new TagView(rs.getString("name"), rs.getString("kind"), rs.getLong("articles")))
+				.list();
+	}
+
+	@Override
+	@Transactional(readOnly = true)
+	public Map<String, UUID> tagIds(Collection<String> names) {
+		if (names == null || names.isEmpty()) {
+			return Map.of();
+		}
+		Map<String, UUID> found = new HashMap<>();
+		jdbc.sql("select name, id from tags where name in (:names)").param("names", names)
+				.query((rs, n) -> Map.entry(rs.getString("name"), rs.getObject("id", UUID.class))).list()
+				.forEach(e -> found.put(e.getKey(), e.getValue()));
+		return found;
+	}
+
+	@Override
+	@Transactional(readOnly = true)
+	public Map<UUID, String> tagNames(Collection<UUID> ids) {
+		if (ids == null || ids.isEmpty()) {
+			return Map.of();
+		}
+		Map<UUID, String> found = new HashMap<>();
+		jdbc.sql("select id, name from tags where id in (:ids)").param("ids", ids)
+				.query((rs, n) -> Map.entry(rs.getObject("id", UUID.class), rs.getString("name"))).list()
+				.forEach(e -> found.put(e.getKey(), e.getValue()));
+		return found;
+	}
+
+	@Override
+	@Transactional(readOnly = true)
+	public List<UUID> tagIdsOf(UUID articleId) {
+		return jdbc.sql("select tag_id from article_tags where article_id = :id").param("id", articleId).query(UUID.class)
 				.list();
 	}
 

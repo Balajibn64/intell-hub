@@ -109,8 +109,8 @@ A language model reads article text that anyone can write, so **whatever it retu
 | LLM budget | Persisted daily counter (250 across providers), checked before every call including retries; ~50 reserved for on-open |
 | Provider chain | `SummarizerProvider` interface; a `ProviderChain` tries Gemini then Groq, handles 429 with backoff |
 | Prompt safety | Each article in its own delimited block, output validated against a JSON schema, output never drives actions |
-| Feed ranking | Score = article relevance + the user's tag weights + recency decay. Computed at query time for 2-5 users |
-| Personalization | Click/save events adjust per-user tag weights (small increments, decayed) |
+| Feed ranking | `0.4 * relevance + 0.4 * tag affinity + 0.2 * recency` (72 h half-life), computed at query time in SQL by the articles module from a `Ranking` the feed passes in (the reader's weights come from `personalization`), so articles never depends on personalization. Formula in DATABASE-API.md |
+| Personalization | Chosen interests plus click/save learning (+0.05 click, +0.15 save, -0.15 unsave, capped 0..1, faded by half every 14 days when read), updated atomically in the same transaction as the event |
 | Auth | Access JWT (~15 min) + rotating refresh token (HttpOnly cookie, hashed in Postgres). `/internal/ingest` uses a separate shared secret |
 | Content safety | Sanitize HTML on ingest, bound sizes and timeouts, never render raw feed HTML |
 | Fetching admin-supplied URLs (SSRF) | Two layers, both from the shared `PublicUrlPolicy` and `PublicAddressPolicy`. When a source is added, only the URL text is checked (http/https, no credentials, no internal or numeric-IP hosts). **At fetch time (M3, done)** a custom DNS resolver vets every address a host resolves to and is the only lookup the connection uses, so there is no second lookup to rebind; redirects are followed by hand (3 at most, each re-checked, never https to http); no proxy, cookies or credentials; the decoded body is capped and a total deadline stops slow trickles. Failure reasons are fixed strings |
