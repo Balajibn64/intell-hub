@@ -62,7 +62,7 @@ erDiagram
 |---|---|
 | V1__baseline.sql | Baseline (M0): proves Flyway runs |
 | V2__identity.sql | users, refresh_tokens (M1, done) |
-| V3__sources.sql | sources |
+| V3__sources.sql | sources (M2, done) |
 | V4__articles_tags.sql | articles, tags, article_tags, indexes, search vector |
 | V5__personalization.sql | user_tag_weights, article_events, saved_articles |
 | V6__enrichment_usage.sql | llm_usage |
@@ -106,8 +106,8 @@ Base path `/api/v1`. JSON. Auth via `Authorization: Bearer <access JWT>`, except
 |---|---|---|
 | GET, POST | /api/v1/admin/users | List, create |
 | PATCH | /api/v1/admin/users/{id} | Change role or enabled |
-| GET, POST | /api/v1/admin/sources | List, create |
-| PATCH, DELETE | /api/v1/admin/sources/{id} | Edit, disable, remove |
+| GET, POST | /api/v1/admin/sources | List with health fields, create. Errors: 400 `INVALID_SOURCE_URL` / `INVALID_SOURCE_CONFIG` / `VALIDATION_FAILED`, 409 `SOURCE_EXISTS` |
+| PATCH, DELETE | /api/v1/admin/sources/{id} | PATCH changes only `name`, `enabled` and `config`; `type` and `url` are fixed (any attempt to send them is ignored). DELETE is permanent, disabling is the normal way to stop a source. 404 `SOURCE_NOT_FOUND` |
 | GET | /api/v1/admin/status | Source health, enrichment status counts, LLM budget used today |
 
 ### Internal

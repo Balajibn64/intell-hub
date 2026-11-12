@@ -17,7 +17,7 @@ Accounts and auth, source management, ingestion from RSS, HN, GitHub releases an
 | M0 | Backend skeleton | App boots; Postgres via Compose; Flyway runs V1; Modulith `verify()` test passes; health endpoint; CI-less `mvn test` green | all (empty) |
 | M1 | Auth | Admin from env vars; login, refresh rotation, logout; role checks; tests for 401 and 403 | identity |
 | M2 | Sources | Admin CRUD for sources; validation; seed a few RSS sources | sources |
-| M3 | Ingestion (RSS) | `POST /internal/ingest` fetches RSS with timeouts and size caps, sanitizes HTML, dedupes, stores articles; one bad source does not stop the run | ingestion, articles |
+| M3 | Ingestion (RSS) | `POST /internal/ingest` fetches RSS with timeouts and size caps, sanitizes HTML, dedupes, stores articles; one bad source does not stop the run; **fetch-time SSRF protection** (resolve and check the address, re-check on every redirect) | ingestion, articles |
 | M4 | Feed API (unranked) | Paginated feed with filters and detail, newest first; save and click endpoints | articles, feed |
 | M5 | Enrichment with fake provider | Pending articles are batched, enriched by a fake provider, states update, budget counter enforced; restart resumes | enrichment |
 | M6 | Real providers | Gemini Flash-Lite and Groq behind `SummarizerProvider`; fallback chain; 429 backoff; strict JSON validation; prompt-injection tests | enrichment |

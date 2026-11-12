@@ -101,6 +101,7 @@ The state lives in a column on the article row, so a restart just resumes work. 
 | Personalization | Click/save events adjust per-user tag weights (small increments, decayed) |
 | Auth | Access JWT (~15 min) + rotating refresh token (HttpOnly cookie, hashed in Postgres). `/internal/ingest` uses a separate shared secret |
 | Content safety | Sanitize HTML on ingest, bound sizes and timeouts, never render raw feed HTML |
+| Fetching admin-supplied URLs (SSRF) | M2 only checks the URL text (http/https, no credentials, no internal or numeric-IP hosts). It does not resolve DNS. **The M3 fetcher must resolve the host itself, reject loopback, private, link-local and metadata addresses, connect to that checked address (no second lookup), and repeat the check on every redirect, with a redirect limit, timeouts and size caps** |
 | Retention | Nightly purge of articles past the window; saved articles are kept (PRD open question, assumed) |
 | Failure isolation | One failing source or one failing batch never stops the rest |
 

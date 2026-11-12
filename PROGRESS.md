@@ -74,6 +74,12 @@ _Last updated: 2026-11-11_
 
 Notes from M0: Initializr's Modulith option adds JPA event-registry and observability artifacts; trimmed them (the registry needs a table, which must come through Flyway, so add it deliberately when events need persistence). `UserDetailsServiceAutoConfiguration` still logs a generated password in M0; it disappears when real auth lands in M1.
 
+- [x] M2 Sources (branch `feat/sources`, PR pending): V3 `sources` schema, `SourceCatalog` published API for ingestion (enabled sources, report fetch results with atomic health counters), admin CRUD under `/api/v1/admin/sources`, strict URL validation, bounded JSON config, seeder for six verified public RSS feeds (only on an empty table; `SEED_DEFAULT_SOURCES`), and an `/api/v1/admin/**` route rule so any future admin controller is ADMIN-only. 132 new tests (211 total). Checked end to end with curl.
+  - **M3 must:** resolve and check the address at fetch time and on every redirect (the M2 validator is text-only and never resolves DNS). Recorded in ARCHITECTURE.md and ROADMAP.md.
+  - Per-type config rules (HN, GitHub releases, arXiv) arrive with each adapter; M2 only bounds the config object.
+  - Not done on purpose: auto-disabling failing sources, DNS-based checks, UI.
+  - Fixed from the M2 code review: concurrent edit vs fetch report (lost update), seeder skipping bad entries one by one, IPv6 embedded-IPv4 bypasses (NAT64, 6to4, IPv4-compatible), URL equivalents (trailing dot, default port), deep read-only config, error text cleaning. Left as is: deleting every source brings the starter feeds back on restart (set `SEED_DEFAULT_SOURCES=false`); the redundant `saveAndFlush` in `update` is harmless.
+
 ## Skills and plugins decisions (2026-11-11)
 | Item | Decision | Why |
 |---|---|---|
