@@ -17,13 +17,20 @@ public interface ReadingState {
 	/** Most saved articles ever returned by {@link #savedArticleIds}. */
 	int MAX_SAVED_LISTED = 2000;
 
+	/** Clicks on one article by one user closer together than this are recorded once. */
+	int CLICK_DEDUPE_SECONDS = 10;
+
 	/** Saves an article. Returns true if it was newly saved, false if it already was. */
 	boolean save(UUID userId, UUID articleId);
 
 	/** Removes a saved article. Returns true if it had been saved, false if it had not. */
 	boolean unsave(UUID userId, UUID articleId);
 
-	/** Records that the user opened the article. Every call is recorded. */
+	/**
+	 * Records that the user opened the article. A repeat click on the same article within
+	 * {@link #CLICK_DEDUPE_SECONDS} counts once, so a double-click or a UI that fires twice does not inflate
+	 * the signal.
+	 */
 	void recordClick(UUID userId, UUID articleId);
 
 	/** The user's saved article ids, most recently saved first, at most {@link #MAX_SAVED_LISTED}. */

@@ -155,15 +155,40 @@ class ReadingStateServiceTests {
 	// ---- clicks ----
 
 	@Test
-	void everyClickIsRecorded() {
+	void rapidRepeatClicksOnOneArticleCountOnce() {
 		UUID article = article();
 
 		state.recordClick(alice, article);
 		state.recordClick(alice, article);
 		state.recordClick(alice, article);
 
-		assertThat(events(alice, article, "CLICK")).isEqualTo(3);
+		assertThat(events(alice, article, "CLICK")).isEqualTo(1);
 		assertThat(jdbc.queryForObject("select count(*) from article_events where created_at is null", Integer.class)).isZero();
+	}
+
+	@Test
+	void aClickAfterTheDedupeWindowIsRecordedAgain() {
+		UUID article = article();
+		state.recordClick(alice, article);
+		jdbc.update("update article_events set created_at = now() - interval '11 seconds' where article_id = ?", article);
+
+		state.recordClick(alice, article);
+
+		assertThat(events(alice, article, "CLICK")).isEqualTo(2);
+	}
+
+	@Test
+	void theClickWindowIsPerUserAndPerArticle() {
+		UUID first = article();
+		UUID second = article();
+
+		state.recordClick(alice, first);
+		state.recordClick(bob, first);
+		state.recordClick(alice, second);
+
+		assertThat(events(alice, first, "CLICK")).isEqualTo(1);
+		assertThat(events(bob, first, "CLICK")).isEqualTo(1);
+		assertThat(events(alice, second, "CLICK")).isEqualTo(1);
 	}
 
 	// ---- per user ----

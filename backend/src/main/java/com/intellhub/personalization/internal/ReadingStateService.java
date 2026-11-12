@@ -64,7 +64,14 @@ class ReadingStateService implements ReadingState {
 	@Override
 	@Transactional
 	public void recordClick(UUID userId, UUID articleId) {
-		recordEvent(userId, articleId, CLICK);
+		boolean recentClick = jdbc.sql("""
+				select exists (select 1 from article_events where user_id = :user and article_id = :article
+				and type = 'CLICK' and created_at > :since)""")
+				.param("user", userId).param("article", articleId)
+				.param("since", now().minusSeconds(CLICK_DEDUPE_SECONDS)).query(Boolean.class).single();
+		if (!recentClick) {
+			recordEvent(userId, articleId, CLICK);
+		}
 	}
 
 	@Override
