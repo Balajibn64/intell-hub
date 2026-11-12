@@ -78,6 +78,7 @@ Notes from M0: Initializr's Modulith option adds JPA event-registry and observab
   - **M3 must:** resolve and check the address at fetch time and on every redirect (the M2 validator is text-only and never resolves DNS). Recorded in ARCHITECTURE.md and ROADMAP.md.
   - Per-type config rules (HN, GitHub releases, arXiv) arrive with each adapter; M2 only bounds the config object.
   - Not done on purpose: auto-disabling failing sources, DNS-based checks, UI.
+  - Fixed from the M2 code review: concurrent edit vs fetch report (lost update), seeder skipping bad entries one by one, IPv6 embedded-IPv4 bypasses (NAT64, 6to4, IPv4-compatible), URL equivalents (trailing dot, default port), deep read-only config, error text cleaning. Left as is: deleting every source brings the starter feeds back on restart (set `SEED_DEFAULT_SOURCES=false`); the redundant `saveAndFlush` in `update` is harmless.
 
 ## Skills and plugins decisions (2026-11-11)
 | Item | Decision | Why |
