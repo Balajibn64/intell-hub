@@ -47,6 +47,9 @@ class ArticleStoreService implements ArticleStore {
 			if (message != null && message.contains("articles_canonical_url_unique")) {
 				return StoreOutcome.DUPLICATE_URL;
 			}
+			if (message != null && message.contains("articles_content_hash_unique")) {
+				return StoreOutcome.DUPLICATE_CONTENT;
+			}
 			throw e;
 		}
 	}

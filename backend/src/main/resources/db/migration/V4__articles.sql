@@ -19,6 +19,9 @@ CREATE TABLE articles (
     enriched_at         timestamptz,
     enriched_by         text,
     CONSTRAINT articles_canonical_url_unique UNIQUE (canonical_url),
+    -- The same content under another URL (a mirror, or two feeds carrying one story) is one article.
+    -- Items with little text include their URL in the hash, so unrelated short items never collide.
+    CONSTRAINT articles_content_hash_unique UNIQUE (content_hash),
     CONSTRAINT articles_status_valid CHECK (status IN ('EXCERPT_ONLY', 'PENDING', 'ENRICHING', 'ENRICHED', 'FAILED')),
     CONSTRAINT articles_category_valid CHECK (category IS NULL
         OR category IN ('AI_ML', 'SOFTWARE_ENGINEERING', 'INDUSTRY_STARTUPS')),
@@ -31,7 +34,6 @@ CREATE TABLE articles (
     CONSTRAINT articles_content_length CHECK (char_length(content_sanitized) <= 50000)
 );
 
-CREATE INDEX articles_content_hash_idx ON articles (content_hash);
 CREATE INDEX articles_status_ingested_idx ON articles (status, ingested_at);
 CREATE INDEX articles_published_idx ON articles (published_at DESC);
 CREATE INDEX articles_source_idx ON articles (source_id);

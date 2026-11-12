@@ -51,7 +51,14 @@ final class FakeFeedServer implements AutoCloseable {
 		return server.getAddress().getPort();
 	}
 
+	/** Registers a handler for a path, replacing any earlier handler for the same path. */
 	FakeFeedServer on(String path, Handler handler) {
+		try {
+			server.removeContext(path);
+		}
+		catch (IllegalArgumentException e) {
+			// there was none
+		}
 		server.createContext(path, exchange -> {
 			seen.add(new Seen(exchange.getRequestURI().getPath(), new java.util.HashMap<>(exchange.getRequestHeaders())));
 			try {

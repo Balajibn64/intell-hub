@@ -129,6 +129,54 @@ class ArticleStoreServiceTests {
 	}
 
 	@Test
+	void concurrentStoresOfTheSameContentUnderDifferentUrlsCreateExactlyOne() throws Exception {
+		int threads = 8;
+		CountDownLatch ready = new CountDownLatch(threads);
+		CountDownLatch go = new CountDownLatch(1);
+		ExecutorService pool = Executors.newFixedThreadPool(threads);
+		try {
+			List<Future<StoreOutcome>> futures = new ArrayList<>();
+			for (int i = 0; i < threads; i++) {
+				String url = "https://mirror" + i + ".example/story";
+				futures.add(pool.submit(() -> {
+					ready.countDown();
+					go.await();
+					return store.store(article(url, HASH_A));
+				}));
+			}
+			ready.await();
+			go.countDown();
+			int created = 0;
+			int duplicates = 0;
+			for (Future<StoreOutcome> future : futures) {
+				StoreOutcome outcome = future.get();
+				if (outcome == StoreOutcome.CREATED) {
+					created++;
+				}
+				else if (outcome == StoreOutcome.DUPLICATE_CONTENT) {
+					duplicates++;
+				}
+			}
+			assertThat(created).isEqualTo(1);
+			assertThat(duplicates).isEqualTo(threads - 1);
+		}
+		finally {
+			pool.shutdownNow();
+		}
+		assertThat(repository.count()).isEqualTo(1);
+	}
+
+	@Test
+	void theDatabaseItselfRefusesTwoArticlesWithTheSameContentHash() {
+		store.store(article("https://example.com/a", HASH_A));
+
+		assertThatThrownBy(() -> jdbc.update(
+				"insert into articles (id, source_id, canonical_url, content_hash, title, published_at, ingested_at) "
+						+ "values (?, ?, 'https://example.com/other', ?, 't', now(), now())",
+				UUID.randomUUID(), sourceId, HASH_A)).isInstanceOf(DataIntegrityViolationException.class);
+	}
+
+	@Test
 	void invalidArticlesAreRejectedBeforeAnythingIsStored() {
 		assertThatThrownBy(() -> store.store(null)).isInstanceOf(IllegalArgumentException.class);
 		assertThatThrownBy(() -> store.store(new NewArticle(null, "https://e.com/a", HASH_A, "t", null, PUBLISHED, "", "")))
