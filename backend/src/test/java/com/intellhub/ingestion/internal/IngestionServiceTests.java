@@ -290,19 +290,50 @@ class IngestionServiceTests {
 	}
 
 	@Test
-	void disabledAndUnsupportedSourcesAreNotFetched() {
+	void disabledSourcesAreNotFetched() {
 		serve("/off", feed(item("Off", "https://example.com/off", "x", null)));
-		serve("/hf", feed(item("HF", "https://example.com/hf", "x", null)));
-		source("RSS", "Disabled", "/off", false);
+		UUID off = source("HUGGINGFACE", "Disabled papers", "/off", false);
+
+		IngestSummary summary = ingestion.run();
+
+		assertThat(summary.sourcesTotal()).isZero();
+		assertThat(server.requests()).isEmpty();
+		assertThat(health(off).get("last_status")).isNull();
+		assertThat(articleCount()).isZero();
+	}
+
+	// ---- Hugging Face daily papers ----
+
+	@Test
+	void hugFacePapersAreStoredWithABuiltLinkAndEscapedSummaryAndNothingElseIsFollowed() {
+		String recent = DateTimeFormatter.ISO_INSTANT.format(Instant.now().minusSeconds(3600));
+		server.on("/hf", FakeFeedServer.body(200, "application/json", "[{\"paper\":{\"id\":\"2611.12869\",\"title\":\"A paper\","
+				+ "\"summary\":\"We study <script>x()</script> things.\",\"authors\":[{\"name\":\"Ada\"}],\"publishedAt\":\"" + recent + "\",\"upvotes\":9}},"
+				+ "{\"paper\":{\"id\":\"../../etc/passwd\",\"title\":\"Bad id\"}}]"));
 		UUID hf = source("HUGGINGFACE", "Hugging Face papers", "/hf", true);
 
 		IngestSummary summary = ingestion.run();
 
-		assertThat(summary.sourcesTotal()).isEqualTo(1);
-		assertThat(summary.sourcesSkipped()).isEqualTo(1);
-		assertThat(resultFor(summary, hf).status()).isEqualTo(Status.SKIPPED_UNSUPPORTED);
-		assertThat(server.requests()).isEmpty();
-		assertThat(health(hf).get("last_status")).isNull();
+		assertThat(resultFor(summary, hf).status()).isEqualTo(Status.OK);
+		assertThat(summary.articlesCreated()).isEqualTo(1);
+		assertThat(jdbc.queryForObject("select canonical_url from articles", String.class)).isEqualTo("https://huggingface.co/papers/2611.12869");
+		assertThat(jdbc.queryForObject("select author from articles", String.class)).isEqualTo("Ada");
+		String content = jdbc.queryForObject("select content_sanitized from articles", String.class);
+		// The summary is plain text: markup in it is shown as text (escaped), never as a tag.
+		assertThat(content).contains("We study").contains("&lt;script&gt;").doesNotContain("<script");
+		assertThat(health(hf).get("last_status")).isEqualTo("OK");
+		assertThat(ingestion.run().duplicates()).isEqualTo(1);
+	}
+
+	@Test
+	void aHugFaceAnswerThatIsNotAnArrayIsAFixedFailure() {
+		server.on("/hf", FakeFeedServer.body(200, "application/json", "{\"error\":\"rate limited secret-body\"}"));
+		UUID hf = source("HUGGINGFACE", "Hugging Face papers", "/hf", true);
+
+		IngestSummary summary = ingestion.run();
+
+		assertThat(resultFor(summary, hf).status()).isEqualTo(Status.FAILED);
+		assertThat(health(hf).get("last_error")).isEqualTo("Invalid feed");
 		assertThat(articleCount()).isZero();
 	}
 
