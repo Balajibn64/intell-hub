@@ -10,6 +10,9 @@ import org.springframework.stereotype.Component;
 /**
  * Tries the configured providers in order and falls through to the next when one fails. The worker only ever
  * talks to the chain. It is empty (and enrichment is off) when no provider is configured.
+ *
+ * <p>Every attempt spends one call from the daily budget, because a real provider call counts against its
+ * free-tier limit whether or not it succeeds.
  */
 @Component
 class ProviderChain {
@@ -20,23 +23,39 @@ class ProviderChain {
 
 	private final List<SummarizerProvider> providers;
 
-	ProviderChain(List<SummarizerProvider> providers) {
+	private final CallBudget budget;
+
+	ProviderChain(List<SummarizerProvider> providers, CallBudget budget) {
 		this.providers = List.copyOf(providers);
+		this.budget = budget;
 	}
 
 	boolean hasProviders() {
 		return !providers.isEmpty();
 	}
 
-	/** @throws ProviderException the last provider's error if every provider failed, or UNAVAILABLE if there are none */
-	Answer summarize(List<SummaryItem> batch) throws ProviderException {
+	/**
+	 * @throws BudgetExhaustedException if today's budget is spent before any provider answered
+	 * @throws ProviderException the last provider's error if every provider failed, or UNAVAILABLE if there are none
+	 */
+	Answer summarize(List<SummaryItem> batch, BudgetPriority priority) throws ProviderException, BudgetExhaustedException {
 		ProviderException last = new ProviderException(ProviderException.Kind.UNAVAILABLE, "No provider is configured");
 		for (SummarizerProvider provider : providers) {
+			if (!budget.tryReserve(priority, provider.name())) {
+				throw new BudgetExhaustedException();
+			}
 			try {
 				return new Answer(provider.name(), provider.summarize(batch));
 			}
 			catch (ProviderException e) {
+				budget.recordFailure(provider.name());
 				last = e;
+			}
+			catch (RuntimeException e) {
+				// A provider bug must not take the worker down, and its message could contain article text.
+				budget.recordFailure(provider.name());
+				last = new ProviderException(ProviderException.Kind.UNAVAILABLE,
+						"Provider failed unexpectedly: " + e.getClass().getSimpleName());
 			}
 		}
 		throw last;
