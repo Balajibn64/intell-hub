@@ -23,7 +23,7 @@ Accounts and auth, source management, ingestion from RSS, HN, GitHub releases an
 | M6 | Real providers, done | Gemini Flash-Lite and Groq behind `SummarizerProvider`; fallback chain; 429 backoff; strict JSON validation; prompt-injection tests | enrichment |
 | M7 | Personalization and ranking, done | Interests API; click/save weights; ranked feed; two users see different orders | personalization, feed |
 | M8 | More sources, done | HN, GitHub releases, arXiv/Hugging Face adapters | ingestion |
-| M9 | Retention and ops | Nightly purge (saved articles kept); admin status endpoint; source health | retention, sources |
+| M9 | Retention and ops, done | Nightly purge (saved articles kept); admin status endpoint; source health | retention, sources |
 | M10 | UI design | Screens and flows designed (see PROGRESS.md: study `frontend-design` first) | none |
 | M11 | Frontend | Vite app: login, feed with filters, article detail, interests, admin pages; Vitest + RTL tests | frontend |
 | M12 | Hardening | Security review, full end-to-end run from `docker compose up`, README, backup and restore notes, GitHub Actions CI (backend and frontend tests, lint) | all |

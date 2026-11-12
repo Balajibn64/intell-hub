@@ -38,7 +38,7 @@ record IngestionProperties(
 		@DefaultValue("2097152") @Min(1024) long maxBodyBytes,
 		@DefaultValue("3") @Min(0) @Max(10) int maxRedirects,
 		@DefaultValue("100") @Min(1) @Max(1000) int maxEntries,
-		@DefaultValue("14d") @NotNull Duration maxAge,
+		@DefaultValue("7d") @NotNull Duration maxAge,
 		@DefaultValue("4") @Min(1) @Max(16) int concurrency,
 		@DefaultValue("3m") @NotNull Duration runTimeout) {
 

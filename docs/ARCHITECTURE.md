@@ -115,7 +115,7 @@ A language model reads article text that anyone can write, so **whatever it retu
 | Content safety | Sanitize HTML on ingest, bound sizes and timeouts, never render raw feed HTML |
 | Fetching admin-supplied URLs (SSRF) | Two layers, both from the shared `PublicUrlPolicy` and `PublicAddressPolicy`. When a source is added, only the URL text is checked (http/https, no credentials, no internal or numeric-IP hosts). **At fetch time (M3, done)** a custom DNS resolver vets every address a host resolves to and is the only lookup the connection uses, so there is no second lookup to rebind; redirects are followed by hand (3 at most, each re-checked, never https to http); no proxy, cookies or credentials; the decoded body is capped and a total deadline stops slow trickles. Failure reasons are fixed strings |
 | Ingestion to articles | `ingestion` calls the public `ArticleStore` API instead of publishing an event, because it needs the outcome per article (created or duplicate) and there is no event registry yet. Enrichment (M5) will still be event-driven |
-| Retention | Nightly purge of articles past the window; saved articles are kept (PRD open question, assumed) |
+| Retention | Purge of articles published more than 7 days ago (`RETENTION_ENABLED`, off by default, or by hand); saved articles are kept while any user has them saved. Batch transactions lock the expired articles, ask personalization what is saved, then delete the rest, so a concurrent save is never lost |
 | Failure isolation | One failing source or one failing batch never stops the rest |
 
 ## 7. Backend package layout (indicative)
@@ -166,5 +166,5 @@ Local only for now. Secrets come from environment variables. The same Compose fi
 
 ## 12. Open items
 1. Exact event and API names per module (decided during implementation).
-2. Retention rule for saved articles (confirm).
+2. ~~Retention rule for saved articles~~ Decided (M9): kept while any user has them saved.
 3. ~~Whether `enrichment` writes back by event or through the `articles` API~~ Decided (M5): through the `articles` API.

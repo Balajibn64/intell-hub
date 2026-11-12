@@ -39,4 +39,10 @@ public interface ReadingState {
 	/** Which of the given articles the user has saved. */
 	Set<UUID> savedAmong(UUID userId, Collection<UUID> articleIds);
 
+	/**
+	 * Which of the given articles any user has saved. The retention purge keeps these. Large lists are fine: they
+	 * are looked up in chunks.
+	 */
+	Set<UUID> savedByAnyone(Collection<UUID> articleIds);
+
 }

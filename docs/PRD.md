@@ -90,7 +90,7 @@ Keeping up with AI, software engineering and industry news means checking dozens
 
 ## 9. Open questions
 1. Exact Gemini Flash-Lite and Groq model IDs: confirm against live console limits. (Provider order is decided.)
-2. Do saved articles survive the retention purge?
+2. ~~Do saved articles survive the retention purge?~~ Yes, for as long as any user has them saved (decided in M9).
 3. Company review data source for increment 2 (no free official API).
 4. Reddit: the original list included it but MVP sources do not; confirm it stays out.
 

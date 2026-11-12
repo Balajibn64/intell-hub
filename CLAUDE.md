@@ -3,7 +3,7 @@
 A platform that ingests tech news, engineering content and industry signals, then summarizes, tags and ranks them per user. It is a real project and also a learning project for Claude Code. Explain the "why" briefly when introducing a new tool or pattern.
 
 ## Status
-Planning documents are in `docs/` (drafts, in review) and the build follows `docs/ROADMAP.md`, one milestone at a time. M0 (skeleton), M1 (auth), M2 (sources), M3 (RSS ingestion), M4 (feed API), M5 (enrichment with a fake provider), M6 (Gemini and Groq providers) and M7 (personalization and ranking) and M8 (Hacker News, GitHub releases, arXiv and Hugging Face sources) are built; do not build ahead of the current milestone unless asked. Track decisions and learning in `PROGRESS.md`.
+Planning documents are in `docs/` (drafts, in review) and the build follows `docs/ROADMAP.md`, one milestone at a time. M0 (skeleton), M1 (auth), M2 (sources), M3 (RSS ingestion), M4 (feed API), M5 (enrichment with a fake provider), M6 (Gemini and Groq providers) and M7 (personalization and ranking) M8 (Hacker News, GitHub releases, arXiv and Hugging Face sources) and M9 (retention and the admin status) are built; do not build ahead of the current milestone unless asked. Track decisions and learning in `PROGRESS.md`.
 
 ## Stack (decided)
 - Backend: Java 21, Spring Boot 4.x, Spring Modulith (modular monolith), Maven
@@ -49,5 +49,6 @@ Planning documents are in `docs/` (drafts, in review) and the build follows `doc
 - The UI must render `contentSanitized` as HTML and everything else (titles, authors, excerpts, summaries, source names) as text.
 - `ENRICHMENT_PROVIDER` is the ordered provider list (`gemini,groq`, `gemini`, `groq`, or `fake` for the offline stand-in, never mixed); unset means off (articles stay pending). Real providers need `GEMINI_API_KEY` / `GROQ_API_KEY` (startup fails without them); models via `GEMINI_MODEL` (gemini-3.5-flash-lite) and `GROQ_MODEL` (openai/gpt-oss-20b). Daily budget `ENRICHMENT_DAILY_BUDGET` (250) with `ENRICHMENT_RESERVED_CALLS` (50) held back for readers' requests. Model output is untrusted: it goes through `EnrichmentValidator` and is shown as text.
 - Feed order: `sort=relevance` (default) ranks per user (`0.4 relevance + 0.4 tag affinity + 0.2 recency`, formula in `RankingSql`; weights in `personalization`/`Weights`), `sort=newest` is plain newest first. A user's weights always come from the token's user id.
+- Retention: `RETENTION_ENABLED` (off by default), `RETENTION_WINDOW` (7d, must not be shorter than the ingestion max-age), `RETENTION_CRON`; saved articles are never purged while any user has them saved. Admin only: `POST /api/v1/admin/retention/purge` (dry run unless `dryRun=false`, exact words only) and `GET /api/v1/admin/status`.
 - `INGEST_SECRET` (32+ chars) enables `POST /internal/ingest` (header `X-Ingest-Token`); unset means it refuses every call. Tests never use the real network: they use a local fake server and fake DNS.
 - After deleting or renaming a class, run `./mvnw clean verify`; stale `.class` files in `target/` can break the context.
