@@ -80,6 +80,11 @@ Notes from M0: Initializr's Modulith option adds JPA event-registry and observab
   - Not done on purpose: auto-disabling failing sources, DNS-based checks, UI.
   - Fixed from the M2 code review: concurrent edit vs fetch report (lost update), seeder skipping bad entries one by one, IPv6 embedded-IPv4 bypasses (NAT64, 6to4, IPv4-compatible), URL equivalents (trailing dot, default port), deep read-only config, error text cleaning. Left as is: deleting every source brings the starter feeds back on restart (set `SEED_DEFAULT_SOURCES=false`); the redundant `saveAndFlush` in `update` is harmless.
 
+- [x] M3 RSS ingestion (branch `feat/ingestion`, PR pending): V4 `articles` (unique canonical URL and content hash), `ArticleStore` public API, shared `PublicUrlPolicy` and `PublicAddressPolicy`, SSRF-safe fetcher (Apache HttpClient 5 with a vetting DNS resolver, manual redirect re-checks, decoded-size cap with immediate abort, total deadline), Rome behind `FeedParser` with DOCTYPEs refused, jsoup sanitizer and plain-text extraction, URL canonicalisation and content hashing, the ingestion run with per-source isolation and health reporting, `POST /internal/ingest` on its own security chain (shared secret, constant-time compare, uniform 403, no JWT), optional in-app schedule (off by default). 204 new tests (434 total); each key guard was mutation-checked (DNS vetting, size cap, redirect re-validation, DOCTYPE refusal, sanitizer allowlist, unset-secret guard). Checked live: 53 articles from 6 real feeds in 2.2 s, second run creates 0, hostnames that resolve to loopback or the metadata address are blocked with "Blocked address", stored content has no disallowed markup, the app log has no feed text, URLs or secrets.
+  - A concurrency test found a real bug: two feeds carrying one story ingested in parallel both passed the content-hash check. Fixed with a unique constraint on `content_hash`.
+  - New env vars: `INGEST_SECRET` (required for the endpoint), `INGEST_SCHEDULE_ENABLED`, `INGEST_CRON`.
+  - Not done on purpose: conditional GET (ETag), enrichment and pre-filter scoring (M5), feed API (M4), purge (M9), HN/GitHub/arXiv adapters (M8; other source types are skipped with a clear status), per-feed politeness delays.
+
 ## Skills and plugins decisions (2026-11-11)
 | Item | Decision | Why |
 |---|---|---|

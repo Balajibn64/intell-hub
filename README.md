@@ -49,3 +49,21 @@ and link-local addresses and numeric IP tricks are rejected.
 ```bash
 curl localhost:8080/api/v1/admin/sources -H "Authorization: Bearer <admin accessToken>"
 ```
+
+## Ingestion
+Ingestion fetches every enabled RSS source, cleans the entries and stores the new ones. It is started
+with a shared secret (set `INGEST_SECRET`, 32+ characters; without it the endpoint refuses every call):
+
+```bash
+curl -X POST localhost:8080/internal/ingest -H "X-Ingest-Token: <INGEST_SECRET>"
+```
+
+The response is a summary of what happened per source. Each source's health (last status, last error
+and consecutive failures) is visible to admins in `GET /api/v1/admin/sources`. To run it on a timer
+inside the app set `INGEST_SCHEDULE_ENABLED=true` (default every 4 hours, `INGEST_CRON` to change); an
+external cron calling the endpoint works too.
+
+Everything fetched is treated as hostile: only public addresses are ever contacted (checked when the
+connection is made and again on every redirect), responses are size- and time-limited, HTML is reduced
+to a small safe subset, and nothing from a feed is written to the logs.
+

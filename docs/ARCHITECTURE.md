@@ -35,7 +35,7 @@ flowchart TD
     retention[retention<br/>nightly purge]
 
     ingestion -->|reads enabled sources| sources
-    ingestion -->|ArticleIngested event| articles
+    ingestion -->|stores via the ArticleStore API| articles
     articles -->|ArticleStored event| enrichment
     enrichment -->|ArticleEnriched event| articles
     feed -->|reads articles API| articles
@@ -63,7 +63,7 @@ sequenceDiagram
     I->>S: list enabled sources
     loop each source (isolated failures)
         I->>I: fetch (timeout, size cap), parse, sanitize
-        I->>A: ArticleIngested (dedupe by URL / content hash)
+        I->>A: ArticleStore.store (dedupe by URL and content hash)
     end
     A->>A: store new rows, heuristic score, status PENDING or EXCERPT_ONLY
     A-->>E: ArticleStored
@@ -101,7 +101,8 @@ The state lives in a column on the article row, so a restart just resumes work. 
 | Personalization | Click/save events adjust per-user tag weights (small increments, decayed) |
 | Auth | Access JWT (~15 min) + rotating refresh token (HttpOnly cookie, hashed in Postgres). `/internal/ingest` uses a separate shared secret |
 | Content safety | Sanitize HTML on ingest, bound sizes and timeouts, never render raw feed HTML |
-| Fetching admin-supplied URLs (SSRF) | M2 only checks the URL text (http/https, no credentials, no internal or numeric-IP hosts). It does not resolve DNS. **The M3 fetcher must resolve the host itself, reject loopback, private, link-local and metadata addresses, connect to that checked address (no second lookup), and repeat the check on every redirect, with a redirect limit, timeouts and size caps** |
+| Fetching admin-supplied URLs (SSRF) | Two layers, both from the shared `PublicUrlPolicy` and `PublicAddressPolicy`. When a source is added, only the URL text is checked (http/https, no credentials, no internal or numeric-IP hosts). **At fetch time (M3, done)** a custom DNS resolver vets every address a host resolves to and is the only lookup the connection uses, so there is no second lookup to rebind; redirects are followed by hand (3 at most, each re-checked, never https to http); no proxy, cookies or credentials; the decoded body is capped and a total deadline stops slow trickles. Failure reasons are fixed strings |
+| Ingestion to articles | `ingestion` calls the public `ArticleStore` API instead of publishing an event, because it needs the outcome per article (created or duplicate) and there is no event registry yet. Enrichment (M5) will still be event-driven |
 | Retention | Nightly purge of articles past the window; saved articles are kept (PRD open question, assumed) |
 | Failure isolation | One failing source or one failing batch never stops the rest |
 
