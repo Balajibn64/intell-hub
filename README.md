@@ -63,6 +63,8 @@ and consecutive failures) is visible to admins in `GET /api/v1/admin/sources`. T
 inside the app set `INGEST_SCHEDULE_ENABLED=true` (default every 4 hours, `INGEST_CRON` to change); an
 external cron calling the endpoint works too.
 
+Titles, authors and excerpts are stored as plain text and must be shown as text, never as HTML; only `content_sanitized` is safe to render as HTML.
+
 Everything fetched is treated as hostile: only public addresses are ever contacted (checked when the
 connection is made and again on every redirect), responses are size- and time-limited, HTML is reduced
 to a small safe subset, and nothing from a feed is written to the logs.
