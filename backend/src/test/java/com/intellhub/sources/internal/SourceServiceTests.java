@@ -24,6 +24,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.TestConstructor;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @Import(TestcontainersConfiguration.class)
 @SpringBootTest
@@ -36,10 +38,14 @@ class SourceServiceTests {
 
 	private final SourceRepository repository;
 
-	SourceServiceTests(SourceService service, SourceCatalog catalog, SourceRepository repository) {
+	private final PlatformTransactionManager transactionManager;
+
+	SourceServiceTests(SourceService service, SourceCatalog catalog, SourceRepository repository,
+			PlatformTransactionManager transactionManager) {
 		this.service = service;
 		this.catalog = catalog;
 		this.repository = repository;
+		this.transactionManager = transactionManager;
 	}
 
 	@BeforeEach
@@ -181,6 +187,102 @@ class SourceServiceTests {
 	void resultsForUnknownSourcesAreIgnored() {
 		catalog.recordFetchResult(UUID.randomUUID(), FetchResult.ok());
 		catalog.recordFetchResult(UUID.randomUUID(), FetchResult.failed("boom"));
+	}
+
+	@Test
+	void editingASourceDoesNotUndoAFetchReportRecordedMeanwhile() throws Exception {
+		Source created = rss("Before", "https://example.com/feed");
+		TransactionTemplate tx = new TransactionTemplate(transactionManager);
+		CountDownLatch loaded = new CountDownLatch(1);
+		CountDownLatch reported = new CountDownLatch(1);
+		ExecutorService pool = Executors.newSingleThreadExecutor();
+		try {
+			// The editor loads the source (health counters at zero), waits, then saves a rename.
+			Future<?> editor = pool.submit(() -> tx.executeWithoutResult(status -> {
+				Source loadedSource = repository.findById(created.getId()).orElseThrow();
+				loaded.countDown();
+				try {
+					reported.await();
+				}
+				catch (InterruptedException e) {
+					Thread.currentThread().interrupt();
+				}
+				loadedSource.rename("After");
+			}));
+			loaded.await();
+			catalog.recordFetchResult(created.getId(), FetchResult.failed("boom"));
+			reported.countDown();
+			editor.get();
+		}
+		finally {
+			pool.shutdownNow();
+		}
+
+		Source after = repository.findById(created.getId()).orElseThrow();
+		assertThat(after.getName()).isEqualTo("After");
+		assertThat(after.getConsecutiveFailures()).isEqualTo(1);
+		assertThat(after.getLastStatus()).isEqualTo(FetchStatus.FAILED);
+		assertThat(after.getLastError()).isEqualTo("boom");
+	}
+
+	@Test
+	void equivalentUrlsAreTheSameSource() {
+		rss("A", "https://example.com/feed");
+
+		for (String equivalent : new String[] { "https://EXAMPLE.com/feed", "https://example.com./feed",
+				"https://example.com:443/feed", "HTTPS://Example.Com.:443/feed" }) {
+			assertThatThrownBy(() -> rss("B", equivalent)).as(equivalent)
+					.isInstanceOfSatisfying(ApiException.class, e -> assertThat(e.getCode()).isEqualTo("SOURCE_EXISTS"));
+		}
+		// A different port, scheme, path or query is a different source.
+		rss("C", "https://example.com:8443/feed");
+		rss("D", "http://example.com/feed");
+		rss("E", "https://example.com/feed?x=1");
+		assertThat(repository.count()).isEqualTo(4);
+	}
+
+	@Test
+	void normalizeUrlOnlyTouchesSchemeHostAndDefaultPort() {
+		assertThat(SourceService.normalizeUrl("HTTP://Example.COM:80/Path/Feed?Q=A#Frag"))
+				.isEqualTo("http://example.com/Path/Feed?Q=A#Frag");
+		assertThat(SourceService.normalizeUrl("https://example.com:/x")).isEqualTo("https://example.com/x");
+		assertThat(SourceService.normalizeUrl("https://example.com:8443")).isEqualTo("https://example.com:8443");
+		assertThat(SourceService.normalizeUrl("https://[2606:4700:4700::1111]:443/f"))
+				.isEqualTo("https://[2606:4700:4700::1111]/f");
+	}
+
+	@Test
+	void aMissingTypeIsABadRequest() {
+		assertThatThrownBy(() -> service.create(null, "A", "https://example.com/feed", Map.of()))
+				.isInstanceOfSatisfying(ApiException.class, e -> assertThat(e.getStatus().value()).isEqualTo(400));
+	}
+
+	@Test
+	void nestedConfigGivenToIngestionIsReadOnlyAtEveryLevel() {
+		service.create(SourceType.RSS, "A", "https://example.com/feed",
+				Map.of("tags", new ArrayList<>(List.of("ai")), "nested", new HashMap<>(Map.of("k", "v"))));
+
+		Map<String, Object> config = catalog.enabledSources().get(0).config();
+
+		assertThatThrownBy(() -> ((List<Object>) config.get("tags")).add("x"))
+				.isInstanceOf(UnsupportedOperationException.class);
+		assertThatThrownBy(() -> ((Map<String, Object>) config.get("nested")).put("x", "y"))
+				.isInstanceOf(UnsupportedOperationException.class);
+		assertThat(config).containsEntry("tags", List.of("ai"));
+	}
+
+	@Test
+	void errorTextHasNoUnicodeLineBreaksAndNeverEndsInHalfAnEmoji() {
+		Source created = rss("A", "https://example.com/feed");
+
+		catalog.recordFetchResult(created.getId(), FetchResult.failed("a\u2028b\u2029c\u0085d"));
+		assertThat(repository.findById(created.getId()).orElseThrow().getLastError()).isEqualTo("a b c d");
+
+		String boundary = "x".repeat(SourceService.MAX_ERROR_LENGTH - 1) + "\uD83D\uDE00" + "tail";
+		catalog.recordFetchResult(created.getId(), FetchResult.failed(boundary));
+		String stored = repository.findById(created.getId()).orElseThrow().getLastError();
+		assertThat(stored).hasSize(SourceService.MAX_ERROR_LENGTH - 1);
+		assertThat(Character.isHighSurrogate(stored.charAt(stored.length() - 1))).isFalse();
 	}
 
 	@Test

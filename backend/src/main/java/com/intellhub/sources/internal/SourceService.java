@@ -5,10 +5,12 @@ import com.intellhub.sources.FetchResult;
 import com.intellhub.sources.SourceCatalog;
 import com.intellhub.sources.SourceInfo;
 import com.intellhub.sources.SourceType;
+import java.net.URI;
 import java.time.Clock;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import org.slf4j.Logger;
@@ -46,8 +48,7 @@ class SourceService implements SourceCatalog {
 	@Transactional(readOnly = true)
 	public List<SourceInfo> enabledSources() {
 		return sources.findByEnabledTrueOrderByCreatedAtAsc().stream()
-				.map(s -> new SourceInfo(s.getId(), s.getType(), s.getName(), s.getUrl(),
-						Collections.unmodifiableMap(new LinkedHashMap<>(s.getConfig()))))
+				.map(s -> new SourceInfo(s.getId(), s.getType(), s.getName(), s.getUrl(), readOnlyCopy(s.getConfig())))
 				.toList();
 	}
 
@@ -71,6 +72,9 @@ class SourceService implements SourceCatalog {
 
 	@Transactional
 	Source create(SourceType type, String name, String url, Map<String, Object> config) {
+		if (type == null) {
+			throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_FAILED", "Type is required");
+		}
 		String cleanName = cleanName(name);
 		SourceUrlValidator.validate(url);
 		Map<String, Object> cleanConfig = cleanConfig(config);
@@ -137,25 +141,58 @@ class SourceService implements SourceCatalog {
 		return value;
 	}
 
-	/** Lowercases the scheme and host, so the same feed cannot be added twice with different case. */
+	/**
+	 * Brings equivalent URLs to one form, so the same feed cannot be added twice: lowercase scheme and
+	 * host, no trailing dot on the host, and no port when it is the default for the scheme. The URL must
+	 * already have passed {@link SourceUrlValidator}.
+	 */
 	static String normalizeUrl(String url) {
-		int schemeEnd = url.indexOf("://");
-		int authorityEnd = url.length();
-		for (char c : new char[] { '/', '?', '#' }) {
-			int i = url.indexOf(c, schemeEnd + 3);
-			if (i >= 0 && i < authorityEnd) {
-				authorityEnd = i;
-			}
+		URI uri = URI.create(url);
+		String scheme = uri.getScheme().toLowerCase(Locale.ROOT);
+		String host = uri.getHost().toLowerCase(Locale.ROOT);
+		if (host.endsWith(".")) {
+			host = host.substring(0, host.length() - 1);
 		}
-		return url.substring(0, authorityEnd).toLowerCase(java.util.Locale.ROOT) + url.substring(authorityEnd);
+		int port = uri.getPort();
+		boolean defaultPort = (scheme.equals("http") && port == 80) || (scheme.equals("https") && port == 443);
+		String authority = host + (port == -1 || defaultPort ? "" : ":" + port);
+		int restStart = url.indexOf("://") + 3 + uri.getRawAuthority().length();
+		return scheme + "://" + authority + url.substring(restStart);
 	}
 
+	/** A deep, read-only copy, so a caller cannot change nested values of the stored config. */
+	private static Map<String, Object> readOnlyCopy(Map<String, Object> config) {
+		Map<String, Object> copy = new LinkedHashMap<>();
+		config.forEach((key, value) -> copy.put(key, readOnlyValue(value)));
+		return Collections.unmodifiableMap(copy);
+	}
+
+	private static Object readOnlyValue(Object value) {
+		if (value instanceof Map<?, ?> map) {
+			Map<String, Object> copy = new LinkedHashMap<>();
+			map.forEach((key, nested) -> copy.put(String.valueOf(key), readOnlyValue(nested)));
+			return Collections.unmodifiableMap(copy);
+		}
+		if (value instanceof List<?> list) {
+			return list.stream().map(SourceService::readOnlyValue).toList();
+		}
+		return value;
+	}
+
+	/** Flattens line breaks (including Unicode ones) and cuts to the limit without splitting a surrogate pair. */
 	private static String cleanError(String error) {
 		if (error == null || error.isBlank()) {
 			return "Unknown error";
 		}
-		String flat = error.replaceAll("\\p{Cntrl}", " ").strip();
-		return flat.length() > MAX_ERROR_LENGTH ? flat.substring(0, MAX_ERROR_LENGTH) : flat;
+		String flat = error.replaceAll("[\\p{Cntrl}\\u0085\\u2028\\u2029]", " ").strip();
+		if (flat.length() <= MAX_ERROR_LENGTH) {
+			return flat;
+		}
+		int end = MAX_ERROR_LENGTH;
+		if (Character.isHighSurrogate(flat.charAt(end - 1))) {
+			end--;
+		}
+		return flat.substring(0, end);
 	}
 
 	private static ApiException exists() {

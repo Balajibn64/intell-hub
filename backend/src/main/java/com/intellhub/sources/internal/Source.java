@@ -12,11 +12,18 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
+import org.hibernate.annotations.DynamicUpdate;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
-/** A configured content source. The type and URL never change after creation. */
+/**
+ * A configured content source. The type and URL never change after creation.
+ *
+ * <p>{@code @DynamicUpdate} makes an edit write only the columns it changed. Without it, an admin
+ * rename would write the whole row back and could undo a fetch result recorded in the meantime.
+ */
 @Entity
+@DynamicUpdate
 @Table(name = "sources")
 class Source {
 

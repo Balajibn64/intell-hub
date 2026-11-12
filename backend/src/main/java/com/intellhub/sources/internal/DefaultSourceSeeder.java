@@ -1,10 +1,8 @@
 package com.intellhub.sources.internal;
 
-import com.intellhub.shared.ApiException;
 import com.intellhub.sources.SourceType;
 import java.io.IOException;
 import java.io.InputStream;
-import java.util.List;
 import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -14,13 +12,15 @@ import org.springframework.boot.ApplicationRunner;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Component;
-import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 /**
- * Adds a few starter feeds on a fresh database. It runs only while there are no sources, so it never
- * re-adds a feed an administrator deleted and never touches an existing setup. Each entry goes through
- * the same validation as the API, and a bad entry is skipped rather than stopping startup.
+ * Adds a few starter feeds on a fresh database. It runs only while the table is empty, so it never
+ * touches an existing setup or restores a single feed an administrator deleted. Deleting every source
+ * does bring the starter feeds back on the next start; set SEED_DEFAULT_SOURCES=false to prevent that.
+ * Each entry goes through the same validation as the API, and a bad entry is skipped rather than
+ * stopping startup.
  */
 @Component
 class DefaultSourceSeeder implements ApplicationRunner {
@@ -53,26 +53,37 @@ class DefaultSourceSeeder implements ApplicationRunner {
 		if (!properties.seedDefaults() || sources.count() > 0) {
 			return;
 		}
-		List<SeedEntry> entries;
+		JsonNode root;
 		try (InputStream in = seedFile.getInputStream()) {
-			entries = objectMapper.readValue(in, new TypeReference<List<SeedEntry>>() {
-			});
+			root = objectMapper.readTree(in);
 		}
 		catch (IOException | RuntimeException e) {
 			log.error("Could not read the default sources file; starting without starter feeds", e);
 			return;
 		}
+		if (root == null || !root.isArray()) {
+			log.error("The default sources file must contain a JSON list; starting without starter feeds");
+			return;
+		}
 		int created = 0;
-		for (SeedEntry entry : entries) {
+		for (JsonNode node : root) {
+			// Each entry is converted on its own, so one malformed entry (bad type, wrong shape) is
+			// skipped without discarding the rest.
 			try {
+				SeedEntry entry = objectMapper.treeToValue(node, SeedEntry.class);
+				if (entry == null) {
+					log.warn("Skipping an empty entry in the default sources file");
+					continue;
+				}
 				sources.create(entry.type(), entry.name(), entry.url(), entry.config());
 				created++;
 			}
-			catch (ApiException | NullPointerException e) {
+			catch (RuntimeException e) {
+				// Whatever is wrong with this entry, the others and startup must carry on.
 				log.warn("Skipping invalid default source: {}", e.getMessage());
 			}
 		}
-		log.info("Seeded {} of {} default sources", created, entries.size());
+		log.info("Seeded {} of {} default sources", created, root.size());
 	}
 
 	record SeedEntry(SourceType type, String name, String url, Map<String, Object> config) {

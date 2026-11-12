@@ -171,10 +171,20 @@ final class SourceUrlValidator {
 			return isNonPublicIpv4(b[0] & 0xff, b[1] & 0xff, b[2] & 0xff)
 					? "URL must not point to a private or internal address" : null;
 		}
-		byte[] bytes = ((Inet6Address) address).getAddress();
-		boolean uniqueLocal = (bytes[0] & 0xfe) == 0xfc;
-		if (address.isLoopbackAddress() || address.isAnyLocalAddress() || address.isLinkLocalAddress()
-				|| address.isSiteLocalAddress() || address.isMulticastAddress() || uniqueLocal) {
+		// Allow only global unicast 2000::/3. That excludes loopback, unspecified, link-local, unique-local,
+		// multicast and the forms that embed an IPv4 address (NAT64 64:ff9b::/96, IPv4-compatible ::/96).
+		// Within 2000::/3, also exclude 6to4 (2002::/16, embeds IPv4), Teredo (2001::/32) and documentation
+		// (2001:db8::/32).
+		byte[] b = ((Inet6Address) address).getAddress();
+		int b0 = b[0] & 0xff;
+		int b1 = b[1] & 0xff;
+		int b2 = b[2] & 0xff;
+		int b3 = b[3] & 0xff;
+		boolean globalUnicast = (b0 & 0xe0) == 0x20;
+		boolean sixToFour = b0 == 0x20 && b1 == 0x02;
+		boolean teredo = b0 == 0x20 && b1 == 0x01 && b2 == 0x00 && b3 == 0x00;
+		boolean documentation = b0 == 0x20 && b1 == 0x01 && b2 == 0x0d && b3 == 0xb8;
+		if (!globalUnicast || sixToFour || teredo || documentation) {
 			return "URL must not point to a private or internal address";
 		}
 		return null;

@@ -109,6 +109,32 @@ class DefaultSourceSeederTests {
 	}
 
 	@Test
+	void entriesWithAMissingTypeOrNullElementsAreSkippedWithoutFailingStartup() {
+		Resource file = json("""
+				[
+				  { "name": "No type", "url": "https://notype.example/feed" },
+				  null,
+				  { "type": "PODCAST", "name": "Bad type", "url": "https://badtype.example/feed" },
+				  { "type": "RSS", "name": "Fine", "url": "https://fine.example/feed" }
+				]
+				""");
+
+		seeder(true, file).run(null);
+
+		assertThat(repository.findAllByOrderByCreatedAtAsc()).extracting(Source::getName).containsExactly("Fine");
+	}
+
+	@Test
+	void deletingEverySourceBringsTheStarterFeedsBackOnTheNextRun() {
+		seeder(true, new ClassPathResource("default-sources.json")).run(null);
+		repository.deleteAll();
+
+		seeder(true, new ClassPathResource("default-sources.json")).run(null);
+
+		assertThat(repository.count()).isEqualTo(6);
+	}
+
+	@Test
 	void anUnreadableOrMalformedFileNeverStopsStartup() {
 		seeder(true, json("this is not json")).run(null);
 		seeder(true, json("{\"not\": \"a list\"}")).run(null);
