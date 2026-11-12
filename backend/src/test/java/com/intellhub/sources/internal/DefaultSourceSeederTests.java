@@ -39,6 +39,9 @@ class DefaultSourceSeederTests {
 		repository.deleteAll();
 	}
 
+	/** The number of entries in the bundled file, so adding a starter source does not break unrelated tests. */
+	private static final int STARTER_COUNT = 12;
+
 	private DefaultSourceSeeder seeder(boolean enabled, Resource file) {
 		return new DefaultSourceSeeder(service, new SourcesProperties(enabled), objectMapper, file);
 	}
@@ -48,17 +51,18 @@ class DefaultSourceSeederTests {
 	}
 
 	@Test
-	void theBundledStarterFeedsAreAllValidPublicRssSources() {
+	void theBundledStarterSourcesAreAllValidForTheirTypeAndCoverEveryType() {
 		seeder(true, new ClassPathResource("default-sources.json")).run(null);
 
 		List<Source> seeded = repository.findAllByOrderByCreatedAtAsc();
-		assertThat(seeded).hasSize(6);
+		assertThat(seeded).hasSize(STARTER_COUNT); // none was skipped as invalid
 		assertThat(seeded).allSatisfy(s -> {
-			assertThat(s.getType()).isEqualTo(SourceType.RSS);
 			assertThat(s.getUrl()).startsWith("https://");
 			assertThat(s.isEnabled()).isTrue();
 			assertThat(SourceUrlValidator.problem(s.getUrl())).isNull();
+			assertThat(SourceUrlValidator.typeProblem(s.getType(), s.getUrl())).isNull();
 		});
+		assertThat(seeded).extracting(Source::getType).containsAll(java.util.Arrays.asList(SourceType.values()));
 		assertThat(seeded).extracting(Source::getName).doesNotHaveDuplicates();
 	}
 
@@ -86,7 +90,7 @@ class DefaultSourceSeederTests {
 
 		seeder(true, new ClassPathResource("default-sources.json")).run(null);
 
-		assertThat(repository.count()).isEqualTo(5);
+		assertThat(repository.count()).isEqualTo(STARTER_COUNT - 1);
 		assertThat(repository.findAll()).extracting(Source::getUrl).doesNotContain(removed.getUrl());
 	}
 
@@ -131,7 +135,7 @@ class DefaultSourceSeederTests {
 
 		seeder(true, new ClassPathResource("default-sources.json")).run(null);
 
-		assertThat(repository.count()).isEqualTo(6);
+		assertThat(repository.count()).isEqualTo(STARTER_COUNT);
 	}
 
 	@Test
