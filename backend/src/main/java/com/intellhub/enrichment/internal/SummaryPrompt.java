@@ -74,18 +74,15 @@ final class SummaryPrompt {
 		return sb.toString();
 	}
 
-	/** Removes the marker characters entirely (repeatedly, so "<<<<<<" cannot rebuild one) and bounds the length. */
+	/**
+	 * Swaps the marker characters for look-alike single quotation marks, so code such as {@code kernel<<<g, b>>>()}
+	 * stays readable but cannot close or open a block, and bounds the length.
+	 */
 	static String clean(String raw, int max) {
 		if (raw == null) {
 			return "";
 		}
-		String text = raw;
-		String previous;
-		do {
-			previous = text;
-			text = text.replace("<<<", "").replace(">>>", "");
-		}
-		while (!text.equals(previous));
+		String text = raw.replace("<<<", "\u2039\u2039\u2039").replace(">>>", "\u203A\u203A\u203A");
 		text = text.strip();
 		if (text.length() > max) {
 			int end = Character.isHighSurrogate(text.charAt(max - 1)) ? max - 1 : max;
@@ -141,7 +138,8 @@ final class SummaryPrompt {
 			if (++seen > batchSize * 2) {
 				break; // a model cannot make us walk an unbounded list
 			}
-			if (node == null || !node.isObject() || !node.path("index").isIntegralNumber()) {
+			if (node == null || !node.isObject() || !node.path("index").canConvertToInt()
+					|| !node.path("index").isIntegralNumber()) {
 				continue;
 			}
 			List<String> tags = new ArrayList<>();

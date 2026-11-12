@@ -7,7 +7,7 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
 import org.springframework.validation.annotation.Validated;
 
 /**
- * Gemini settings. The model name goes into the request address, so it is limited to safe characters. The base
+ * Gemini settings. The model name goes into the request address, so it is limited to safe characters and cannot start with a dot. The base
  * address can only be changed to another https address or the local machine (tests); it is not an environment
  * variable.
  *
@@ -17,7 +17,7 @@ import org.springframework.validation.annotation.Validated;
 @Validated
 record GeminiProperties(
 		@DefaultValue("") String apiKey,
-		@DefaultValue("gemini-3.5-flash-lite") @Pattern(regexp = "[A-Za-z0-9._-]{1,80}") String model,
+		@DefaultValue("gemini-3.5-flash-lite") @Pattern(regexp = "[A-Za-z0-9][A-Za-z0-9._-]{0,79}") String model,
 		@DefaultValue("https://generativelanguage.googleapis.com") @NotBlank String baseUrl) {
 
 	@Override

@@ -65,7 +65,7 @@ class GeminiSummarizerTests {
 		JsonNode sent = mapper.readTree(server.lastBody());
 		assertThat(sent.path("generationConfig").path("responseMimeType").asString()).isEqualTo("application/json");
 		assertThat(sent.path("generationConfig").path("responseJsonSchema").path("required").get(0).asString()).isEqualTo("items");
-		assertThat(sent.path("generationConfig").path("maxOutputTokens").asInt()).isEqualTo(SummaryPrompt.MAX_OUTPUT_TOKENS);
+		assertThat(sent.path("generationConfig").path("maxOutputTokens").asInt()).isEqualTo(GeminiSummarizer.MAX_OUTPUT_TOKENS);
 		assertThat(sent.path("systemInstruction").path("parts").get(0).path("text").asString()).contains("untrusted");
 		String user = sent.path("contents").get(0).path("parts").get(0).path("text").asString();
 		assertThat(user).contains("<<<ARTICLE 0>>>").contains("<<<ARTICLE 1>>>").contains("Body one");
@@ -96,7 +96,7 @@ class GeminiSummarizerTests {
 	void badKeyAndServerErrorsMapToKinds() {
 		server.respond(403, "{\"error\":{\"message\":\"API key not valid " + KEY + "\"}}");
 		ProviderException forbidden = failure();
-		assertThat(forbidden.getKind()).isEqualTo(Kind.BAD_RESPONSE);
+		assertThat(forbidden.getKind()).isEqualTo(Kind.UNAVAILABLE);
 		assertThat(forbidden.getMessage()).doesNotContain(KEY);
 
 		server.respond(503, "{}");
@@ -106,7 +106,8 @@ class GeminiSummarizerTests {
 	@Test
 	void repliesWithoutUsableTextFailTheBatch() {
 		String[] bad = { "{}", "{\"candidates\":[]}", "{\"promptFeedback\":{\"blockReason\":\"SAFETY\"}}",
-				"{\"candidates\":[{\"finishReason\":\"SAFETY\"}]}", "{\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"\"}]}}]}",
+				"{\"candidates\":[{\"finishReason\":\"SAFETY\"}]}",
+				"{\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"{\\\"items\\\":[\"}]},\"finishReason\":\"MAX_TOKENS\"}]}", "{\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"\"}]}}]}",
 				"not json", reply("this is prose, not json"), reply("{\"items\":\"nope\"}") };
 		for (String body : bad) {
 			server.respond(200, body);

@@ -150,7 +150,16 @@ class EnrichmentWorker {
 					break;
 				}
 				catch (ProviderException e) {
-					handBack(claimed);
+					if (e.getKind() == ProviderException.Kind.BAD_RESPONSE) {
+						// The provider answered but not usably: the batch itself may be the cause (an article that
+						// makes the model refuse or ramble), so the attempt counts and it ends FAILED, not looping.
+						for (EnrichmentInput input : claimed) {
+							(input.attempts() >= properties.maxAttempts() ? toFail : toRetry).add(input.id());
+						}
+					}
+					else {
+						handBack(claimed);
+					}
 					startBackoff(e);
 					stoppedBecause = "the provider failed: " + e.getKind();
 					break;

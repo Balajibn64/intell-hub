@@ -21,6 +21,9 @@ final class GeminiSummarizer implements SummarizerProvider {
 
 	static final String NAME = "gemini";
 
+	/** Thinking models spend part of this on thoughts, so it is well above what the answer itself needs. */
+	static final int MAX_OUTPUT_TOKENS = 4000;
+
 	private final ProviderHttp http;
 
 	private final String apiKey;
@@ -47,7 +50,7 @@ final class GeminiSummarizer implements SummarizerProvider {
 		config.put("responseMimeType", "application/json");
 		config.put("responseJsonSchema", prompt.schema());
 		config.put("temperature", 0.2);
-		config.put("maxOutputTokens", SummaryPrompt.MAX_OUTPUT_TOKENS);
+		config.put("maxOutputTokens", MAX_OUTPUT_TOKENS);
 		Map<String, Object> request = new LinkedHashMap<>();
 		request.put("systemInstruction", Map.of("parts", List.of(Map.of("text", prompt.system()))));
 		request.put("contents", List.of(Map.of("role", "user", "parts", List.of(Map.of("text", prompt.user(batch))))));
@@ -61,7 +64,11 @@ final class GeminiSummarizer implements SummarizerProvider {
 	/** The text of the first candidate; a blocked or empty reply has none. */
 	private String answerText(String reply) throws ProviderException {
 		try {
-			JsonNode parts = mapper.readTree(reply).path("candidates").path(0).path("content").path("parts");
+			JsonNode candidate = mapper.readTree(reply).path("candidates").path(0);
+			if ("MAX_TOKENS".equals(candidate.path("finishReason").asString(""))) {
+				throw new ProviderException(Kind.BAD_RESPONSE, "The provider's answer was cut off");
+			}
+			JsonNode parts = candidate.path("content").path("parts");
 			StringBuilder text = new StringBuilder();
 			if (parts.isArray()) {
 				for (JsonNode part : parts) {

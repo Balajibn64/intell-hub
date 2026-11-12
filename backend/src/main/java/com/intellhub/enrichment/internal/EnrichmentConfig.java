@@ -28,26 +28,32 @@ class EnrichmentConfig {
 	@Bean
 	@ConditionalOnExpression(HAS_GEMINI)
 	GeminiSummarizer geminiSummarizer(GeminiProperties settings, SummaryPrompt prompt, ObjectMapper mapper) {
-		requireKey(settings.apiKey(), "GEMINI_API_KEY", "gemini");
+		String key = requireKey(settings.apiKey(), "GEMINI_API_KEY", "gemini");
 		ProviderHttp http = new ProviderHttp(ProviderHttp.Settings
 				.of(trimSlash(settings.baseUrl()) + "/v1beta/models/" + settings.model() + ":generateContent"));
-		return new GeminiSummarizer(http, settings.apiKey(), prompt, mapper);
+		return new GeminiSummarizer(http, key, prompt, mapper);
 	}
 
 	@Bean
 	@ConditionalOnExpression(HAS_GROQ)
 	GroqSummarizer groqSummarizer(GroqProperties settings, SummaryPrompt prompt, ObjectMapper mapper) {
-		requireKey(settings.apiKey(), "GROQ_API_KEY", "groq");
+		String key = requireKey(settings.apiKey(), "GROQ_API_KEY", "groq");
 		ProviderHttp http = new ProviderHttp(
 				ProviderHttp.Settings.of(trimSlash(settings.baseUrl()) + "/openai/v1/chat/completions"));
-		return new GroqSummarizer(http, settings.apiKey(), settings.model(), prompt, mapper);
+		return new GroqSummarizer(http, key, settings.model(), prompt, mapper);
 	}
 
-	private static void requireKey(String key, String variable, String provider) {
+	/** Returns the key without stray whitespace; a key that is empty or has odd characters stops startup. */
+	private static String requireKey(String key, String variable, String provider) {
 		if (key == null || key.isBlank()) {
 			throw new IllegalStateException(
 					"Enrichment provider '" + provider + "' is enabled but " + variable + " is not set");
 		}
+		String stripped = key.strip();
+		if (!stripped.matches("[\\x21-\\x7E]+")) {
+			throw new IllegalStateException(variable + " contains characters that cannot be part of an API key");
+		}
+		return stripped;
 	}
 
 	private static String trimSlash(String url) {

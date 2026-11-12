@@ -107,9 +107,14 @@ class ProviderHttpTests {
 		assertThat(failure().getKind()).isEqualTo(Kind.UNAVAILABLE);
 		server.respond(504, "oops");
 		assertThat(failure().getKind()).isEqualTo(Kind.TIMEOUT);
-		for (int status : new int[] { 400, 401, 403, 404 }) {
+		for (int status : new int[] { 400, 404 }) {
 			server.respond(status, "{}");
 			assertThat(failure().getKind()).isEqualTo(Kind.BAD_RESPONSE);
+		}
+		// A wrong or revoked key is our problem, not the article's, so it is not a "bad response".
+		for (int status : new int[] { 401, 403 }) {
+			server.respond(status, "{}");
+			assertThat(failure().getKind()).isEqualTo(Kind.UNAVAILABLE);
 		}
 	}
 
@@ -138,6 +143,17 @@ class ProviderHttpTests {
 		server.respond(200, "{}").delay(1500);
 		ProviderException e = catchProviderException(() -> http(Duration.ofMillis(300), 1024).postJson("{}", Map.of()));
 		assertThat(e.getKind()).isEqualTo(Kind.TIMEOUT);
+	}
+
+	@Test
+	void aServerThatSendsHeadersAndThenStallsIsCutOffAtTheTotalTimeLimit() {
+		server.stallBodyFor(5000);
+		long start = System.nanoTime();
+
+		ProviderException e = catchProviderException(() -> http(Duration.ofMillis(500), 1024).postJson("{}", Map.of()));
+
+		assertThat(e.getKind()).isEqualTo(Kind.TIMEOUT);
+		assertThat(Duration.ofNanos(System.nanoTime() - start)).isLessThan(Duration.ofSeconds(3));
 	}
 
 	@Test

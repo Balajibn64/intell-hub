@@ -42,4 +42,24 @@ class EnrichmentConfigTests {
 				.isEqualTo("gemini-3.5-flash-lite");
 	}
 
+	@Test
+	void aKeyIsStrippedAndOneWithOddCharactersStopsStartup() throws Exception {
+		assertThat(config.geminiSummarizer(new GeminiProperties("  abc123\r\n", "gemini-test", "https://example.com"), prompt,
+				JsonMapper.builder().build())).isNotNull();
+		assertThatThrownBy(() -> config.groqSummarizer(new GroqProperties("abc 123", "m", "https://example.com"), prompt,
+				JsonMapper.builder().build())).isInstanceOf(IllegalStateException.class).hasMessageContaining("GROQ_API_KEY")
+				.satisfies(e -> assertThat(e.getMessage()).doesNotContain("abc"));
+	}
+
+	@Test
+	void modelNamesCannotBeDotSegmentsOrStartWithPunctuation() {
+		jakarta.validation.Validator validator = jakarta.validation.Validation.buildDefaultValidatorFactory().getValidator();
+		for (String bad : new String[] { "..", ".", ".hidden", "a b", "a?b", "a/b", "" }) {
+			assertThat(validator.validate(new GeminiProperties("k", bad, "https://example.com"))).as(bad).isNotEmpty();
+		}
+		assertThat(validator.validate(new GeminiProperties("k", "gemini-3.5-flash-lite", "https://example.com"))).isEmpty();
+		assertThat(validator.validate(new GroqProperties("k", "openai/gpt-oss-20b", "https://example.com"))).isEmpty();
+		assertThat(validator.validate(new GroqProperties("k", "../x", "https://example.com"))).isNotEmpty();
+	}
+
 }

@@ -2,11 +2,12 @@ package com.intellhub.enrichment.internal;
 
 import com.intellhub.enrichment.ProviderException;
 import com.intellhub.enrichment.ProviderException.Kind;
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.UncheckedIOException;
 import java.net.URI;
 import java.net.http.HttpClient;
+import java.net.http.HttpHeaders;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.net.http.HttpTimeoutException;
@@ -14,6 +15,11 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -69,66 +75,88 @@ final class ProviderHttp {
 				.header("Content-Type", "application/json").header("Accept", "application/json")
 				.POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8));
 		headers.forEach(request::header);
-		long deadline = System.nanoTime() + settings.totalTimeout().toNanos();
-		try {
-			HttpResponse<InputStream> response = client.send(request.build(), HttpResponse.BodyHandlers.ofInputStream());
-			try (InputStream in = response.body()) {
-				int status = response.statusCode();
-				if (status == 429) {
-					Duration wait = retryAfter(response.headers().firstValue("retry-after").orElse(null));
-					if (wait == null) {
-						try {
-							wait = retryDelayFrom(readCapped(in, deadline, 8 * 1024));
-						}
-						catch (ProviderException | IOException ignored) {
-							// A missing hint must not hide the fact that we were rate limited.
-						}
+		// Sending and reading the (capped) reply both happen in one task whose total wait is bounded here, and the
+		// stream is closed on a timeout, so a server that sends headers and then stalls cannot hold us.
+		AtomicReference<InputStream> open = new AtomicReference<>();
+		CompletableFuture<Reply> pending = client.sendAsync(request.build(), HttpResponse.BodyHandlers.ofInputStream())
+				.thenApply(response -> {
+					open.set(response.body());
+					try (InputStream in = response.body()) {
+						return new Reply(response.statusCode(), response.headers(),
+								in.readNBytes(settings.maxResponseBytes() + 1));
 					}
-					throw new ProviderException(Kind.RATE_LIMITED, "The provider is rate limiting us", wait);
-				}
-				if (status == 408 || status == 504) {
-					throw new ProviderException(Kind.TIMEOUT, "The provider timed out");
-				}
-				if (status >= 500) {
-					throw new ProviderException(Kind.UNAVAILABLE, "The provider is unavailable");
-				}
-				if (status < 200 || status >= 300) {
-					// 3xx (never followed), 400, 401, 403 and the rest: our request or key is wrong, retrying will not help.
-					throw new ProviderException(Kind.BAD_RESPONSE, "The provider refused the request (HTTP " + status + ")");
-				}
-				String type = response.headers().firstValue("content-type").orElse("").toLowerCase(Locale.ROOT);
-				if (!type.contains("json")) {
-					throw new ProviderException(Kind.BAD_RESPONSE, "The provider did not answer with JSON");
-				}
-				return readCapped(in, deadline, settings.maxResponseBytes());
-			}
+					catch (IOException e) {
+						throw new UncheckedIOException(e);
+					}
+				});
+		try {
+			return interpret(pending.get(settings.totalTimeout().toMillis(), TimeUnit.MILLISECONDS));
 		}
-		catch (HttpTimeoutException e) {
+		catch (TimeoutException e) {
+			abandon(pending, open);
 			throw new ProviderException(Kind.TIMEOUT, "The provider timed out");
 		}
 		catch (InterruptedException e) {
+			abandon(pending, open);
 			Thread.currentThread().interrupt();
 			throw new ProviderException(Kind.UNAVAILABLE, "Interrupted while waiting for the provider");
 		}
-		catch (IOException e) {
+		catch (ExecutionException e) {
+			if (e.getCause() instanceof HttpTimeoutException) {
+				throw new ProviderException(Kind.TIMEOUT, "The provider timed out");
+			}
 			throw new ProviderException(Kind.UNAVAILABLE, "Could not reach the provider");
 		}
 	}
 
-	private static String readCapped(InputStream in, long deadline, int limit) throws IOException, ProviderException {
-		ByteArrayOutputStream out = new ByteArrayOutputStream();
-		byte[] buffer = new byte[4096];
-		int read;
-		while ((read = in.read(buffer)) != -1) {
-			if (System.nanoTime() - deadline > 0) {
-				throw new ProviderException(Kind.TIMEOUT, "The provider timed out");
+	private record Reply(int status, HttpHeaders headers, byte[] body) {
+	}
+
+	private static void abandon(CompletableFuture<Reply> pending, AtomicReference<InputStream> open) {
+		pending.cancel(true);
+		InputStream in = open.get();
+		if (in != null) {
+			try {
+				in.close();
 			}
-			if (out.size() + read > limit) {
-				throw new ProviderException(Kind.BAD_RESPONSE, "The provider's answer was too large");
+			catch (IOException ignored) {
+				// nothing more to do: the call is being abandoned
 			}
-			out.write(buffer, 0, read);
 		}
-		return out.toString(StandardCharsets.UTF_8);
+	}
+
+	private String interpret(Reply response) throws ProviderException {
+		int status = response.status();
+		byte[] bytes = response.body();
+		if (status == 429) {
+			Duration wait = retryAfter(response.headers().firstValue("retry-after").orElse(null));
+			if (wait == null && bytes != null) {
+				wait = retryDelayFrom(new String(bytes, 0, Math.min(bytes.length, 8 * 1024), StandardCharsets.UTF_8));
+			}
+			throw new ProviderException(Kind.RATE_LIMITED, "The provider is rate limiting us", wait);
+		}
+		if (status == 408 || status == 504) {
+			throw new ProviderException(Kind.TIMEOUT, "The provider timed out");
+		}
+		if (status == 401 || status == 403) {
+			// Our key is wrong or revoked: not the article's fault, so it must not use up an article's attempts.
+			throw new ProviderException(Kind.UNAVAILABLE, "The provider rejected our credentials");
+		}
+		if (status >= 500) {
+			throw new ProviderException(Kind.UNAVAILABLE, "The provider is unavailable");
+		}
+		if (status < 200 || status >= 300) {
+			// 3xx (never followed), 400 and the rest: the request was refused, retrying it unchanged will not help.
+			throw new ProviderException(Kind.BAD_RESPONSE, "The provider refused the request (HTTP " + status + ")");
+		}
+		String type = response.headers().firstValue("content-type").orElse("").toLowerCase(Locale.ROOT);
+		if (!type.contains("json")) {
+			throw new ProviderException(Kind.BAD_RESPONSE, "The provider did not answer with JSON");
+		}
+		if (bytes == null || bytes.length > settings.maxResponseBytes()) {
+			throw new ProviderException(Kind.BAD_RESPONSE, "The provider's answer was too large");
+		}
+		return new String(bytes, StandardCharsets.UTF_8);
 	}
 
 	/** The retry-after header in seconds, kept between one second and one hour; null if absent or not a number. */

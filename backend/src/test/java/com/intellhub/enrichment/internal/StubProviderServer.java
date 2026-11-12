@@ -22,6 +22,8 @@ final class StubProviderServer implements AutoCloseable {
 
 	private volatile long delayMillis = 0;
 
+	private volatile long stallBodyMillis = 0;
+
 	private final Map<String, String> responseHeaders = new LinkedHashMap<>();
 
 	private volatile String lastPath;
@@ -50,6 +52,21 @@ final class StubProviderServer implements AutoCloseable {
 				}
 			}
 			byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+			if (stallBodyMillis > 0) {
+				// Promise a body, send a few bytes, then go quiet.
+				exchange.getResponseHeaders().add("Content-Type", contentType);
+				exchange.sendResponseHeaders(200, 1000);
+				try {
+					exchange.getResponseBody().write("{\"a\"".getBytes(StandardCharsets.UTF_8));
+					exchange.getResponseBody().flush();
+					Thread.sleep(stallBodyMillis);
+				}
+				catch (InterruptedException | IOException e) {
+					// the client gave up
+				}
+				exchange.close();
+				return;
+			}
 			exchange.getResponseHeaders().add("Content-Type", contentType);
 			responseHeaders.forEach((k, v) -> exchange.getResponseHeaders().add(k, v));
 			exchange.sendResponseHeaders(status, bytes.length == 0 ? -1 : bytes.length);
@@ -78,6 +95,11 @@ final class StubProviderServer implements AutoCloseable {
 
 	StubProviderServer header(String name, String value) {
 		responseHeaders.put(name, value);
+		return this;
+	}
+
+	StubProviderServer stallBodyFor(long millis) {
+		this.stallBodyMillis = millis;
 		return this;
 	}
 

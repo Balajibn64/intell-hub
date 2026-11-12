@@ -4,6 +4,7 @@ import com.intellhub.enrichment.ProviderException;
 import com.intellhub.enrichment.SummarizerProvider;
 import com.intellhub.enrichment.SummaryItem;
 import com.intellhub.enrichment.SummaryResult;
+import java.time.Duration;
 import java.util.Comparator;
 import java.util.List;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -59,6 +60,7 @@ class ProviderChain {
 	 */
 	Answer summarize(List<SummaryItem> batch, BudgetPriority priority) throws ProviderException, BudgetExhaustedException {
 		ProviderException last = new ProviderException(ProviderException.Kind.UNAVAILABLE, "No provider is configured");
+		Duration longestWait = null;
 		for (SummarizerProvider provider : providers) {
 			if (!budget.tryReserve(priority, provider.name())) {
 				throw new BudgetExhaustedException();
@@ -69,6 +71,9 @@ class ProviderChain {
 			catch (ProviderException e) {
 				budget.recordFailure(provider.name());
 				last = e;
+				if (e.getRetryAfter() != null && (longestWait == null || e.getRetryAfter().compareTo(longestWait) > 0)) {
+					longestWait = e.getRetryAfter();
+				}
 			}
 			catch (RuntimeException e) {
 				// A provider bug must not take the worker down, and its message could contain article text.
@@ -76,6 +81,10 @@ class ProviderChain {
 				last = new ProviderException(ProviderException.Kind.UNAVAILABLE,
 						"Provider failed unexpectedly: " + e.getClass().getSimpleName());
 			}
+		}
+		// A fallback that fails differently must not hide an earlier, longer wait the first provider asked for.
+		if (longestWait != null && (last.getRetryAfter() == null || last.getRetryAfter().compareTo(longestWait) < 0)) {
+			throw new ProviderException(last.getKind(), last.getMessage(), longestWait);
 		}
 		throw last;
 	}

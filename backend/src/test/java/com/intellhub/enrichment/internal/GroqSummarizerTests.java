@@ -96,7 +96,7 @@ class GroqSummarizerTests {
 	void badKeyAndServerErrorsMapToKindsWithoutLeakingTheKey() {
 		server.respond(401, "{\"error\":{\"message\":\"Invalid API Key " + KEY + "\"}}");
 		ProviderException unauthorized = failure(groq("m"));
-		assertThat(unauthorized.getKind()).isEqualTo(Kind.BAD_RESPONSE);
+		assertThat(unauthorized.getKind()).isEqualTo(Kind.UNAVAILABLE);
 		assertThat(unauthorized.getMessage()).doesNotContain(KEY);
 
 		server.respond(500, "{}");

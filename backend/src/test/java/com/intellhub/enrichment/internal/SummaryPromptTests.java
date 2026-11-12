@@ -45,6 +45,13 @@ class SummaryPromptTests {
 	}
 
 	@Test
+	void codeWithTripleAngleBracketsStaysReadable() {
+		String cleaned = SummaryPrompt.clean("launch kernel<<<grid, block>>>(args) now", 100);
+
+		assertThat(cleaned).doesNotContain("<<<").doesNotContain(">>>").contains("kernel").contains("grid, block").contains("(args) now");
+	}
+
+	@Test
 	void sentTextIsBoundedAndNeverSplitsASurrogatePair() {
 		String longText = "a".repeat(SummaryPrompt.MAX_TEXT_CHARS - 1) + "😀" + "tail";
 		String cleaned = SummaryPrompt.clean(longText, SummaryPrompt.MAX_TEXT_CHARS);
@@ -91,6 +98,15 @@ class SummaryPromptTests {
 		assertThat(results.get(0).tags()).isEmpty();
 		assertThat(Double.isFinite(results.get(0).relevance())).isFalse(); // rejected later by the validator
 		assertThat(results.get(1).tags()).containsExactly("a");
+	}
+
+	@Test
+	void anIndexThatDoesNotFitAnIntIsSkippedNotWrappedOntoAnotherArticle() throws Exception {
+		List<SummaryResult> results = prompt.parse("""
+				{"items":[{"index":4294967296,"summary":"hijack","category":"AI_ML","tags":[],"relevance":0.9},
+				          {"index":0,"summary":"real","category":"AI_ML","tags":[],"relevance":0.5}]}""", 5);
+
+		assertThat(results).singleElement().satisfies(r -> assertThat(r.summary()).isEqualTo("real"));
 	}
 
 	@Test

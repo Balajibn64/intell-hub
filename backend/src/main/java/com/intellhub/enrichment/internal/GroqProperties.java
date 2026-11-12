@@ -16,7 +16,7 @@ import org.springframework.validation.annotation.Validated;
 @Validated
 record GroqProperties(
 		@DefaultValue("") String apiKey,
-		@DefaultValue("openai/gpt-oss-20b") @Pattern(regexp = "[A-Za-z0-9._/-]{1,80}") String model,
+		@DefaultValue("openai/gpt-oss-20b") @Pattern(regexp = "[A-Za-z0-9][A-Za-z0-9._/-]{0,79}") String model,
 		@DefaultValue("https://api.groq.com") @NotBlank String baseUrl) {
 
 	@Override
